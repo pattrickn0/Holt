@@ -6,12 +6,6 @@ A limitation that starts getting in the way during actual use also moves up ther
 
 ## Ideas
 
-### Brand
-
-- **Otter logo for Holt** (user, 2026-10-29): the product is named after an otter's den, but the icon is still the old
-  one (`crates/app/assets/holt.png`/`.ico`, generated from `icons.rs` by `scripts/generate-icon.ps1`). Design an otter
-  logo and regenerate the icon, the title-bar mark and the tray icon.
-
 ### Tasks desk and models
 
 - **Acid test on a project other than Holt** (user, 2026-10-24): a Godot game, after system tray and conversation

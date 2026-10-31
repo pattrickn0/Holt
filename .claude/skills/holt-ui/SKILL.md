@@ -87,7 +87,7 @@ to the system font.
   of the split view is a `Well` island. Dividers sit in the gap (`paint_splitter` only shows with the mouse).
 - Common components in `ui/mod.rs`: `segmented`, `button` (`ButtonKind::{Primary, Secondary, Ghost}`), `button_danger`,
   `section_label`, `chip`, `separator`, `galley_spaced`.
-- Logo: `Icon::Holt` (`icons.rs`, `LOGO_CARDS`); the `.ico` comes from `scripts/generate-icon.ps1`.
+- Logo: `Icon::Holt` (`icons.rs`, `LOGO_LAYERS`, same SVG as `memory/brand/holt.svg`); the `.ico` comes from `scripts/generate-icon.ps1`.
 
 ## Measurements
 

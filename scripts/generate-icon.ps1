@@ -1,5 +1,5 @@
 # Generates crates/app/assets/holt.ico (16, 24, 32, 48 and 256 px) and holt.png (256 px, the Linux icon)
-# from the same drawing as the app's logo (LOGO_CARDS in crates/app/src/icons.rs). Transparent background; outline and hole in #16181c.
+# from the same drawing as the app's logo (LOGO_LAYERS in crates/app/src/icons.rs). Transparent background; dark cavity and cutouts in #16181c.
 #
 #   powershell -File scripts/generate-icon.ps1
 #
