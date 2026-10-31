@@ -45,8 +45,8 @@ pub enum Icon {
     Terminal,
     /// Notifications (title bar). Material Icons `notifications_none` (Apache-2.0, viewBox 24).
     Bell,
-    /// Holt brand: a "deck" of three cards (24×24 grid). Does not use `path d`: has its own
-    /// colors from [`LOGO_CARDS`] and is rasterized by [`logo_rgba`]; `paint`'s `color` acts only as tint (white = as is).
+    /// Holt brand: side-profile otter in a river-den medallion (24×24 grid). Uses its own
+    /// tonal layers from [`LOGO_LAYERS`] and is rasterized by [`logo_rgba`]; `paint`'s `color` acts only as tint (white = as is).
     Holt,
 }
 
@@ -146,84 +146,71 @@ impl IconCache {
 }
 
 // ---------------------------------------------------------------------------
-// Holt brand: three cards in a deck and one hole (24×24 grid)
+// Holt brand: side-profile otter in a river-den medallion (24×24 grid)
 // ---------------------------------------------------------------------------
 
-/// A card from the deck, on the brand's 24×24 grid.
-pub struct LogoCard {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-    pub r: f32,
-    pub fill: Color32,
-    /// Outline of [`LOGO_STROKE`] in background color (separates card from what's behind).
-    pub outlined: bool,
+/// A vector layer of the Holt otter brandmark on the 24×24 grid (same paths as `memory/brand/holt.svg`).
+pub struct LogoLayer {
+    pub d: &'static str,
+    /// Layer fill color (`None` uses the `outline` / dark cavity color passed to [`logo_rgba`]).
+    pub fill: Option<Color32>,
 }
 
-/// Back to front: back, middle, front.
-pub const LOGO_CARDS: [LogoCard; 3] = [
-    LogoCard { x: 8.0, y: 2.5, w: 13.5, h: 10.0, r: 2.5, fill: crate::theme::DARK.text_faint, outlined: false },
-    LogoCard { x: 5.25, y: 6.75, w: 13.5, h: 10.0, r: 2.5, fill: crate::theme::DARK.text_2, outlined: true },
-    LogoCard { x: 2.5, y: 11.0, w: 13.5, h: 10.0, r: 2.5, fill: crate::theme::DARK.text, outlined: true },
+/// Back to front: medallion rim, dark cavity, ear, inner ear, head & neck, bright throat patch,
+/// eye & nose, dark wave separator, and riverbank wave.
+pub const LOGO_LAYERS: [LogoLayer; 9] = [
+    LogoLayer { d: "M 2 12 A 10 10 0 1 0 22 12 A 10 10 0 1 0 2 12 Z", fill: Some(crate::theme::DARK.text_faint) },
+    LogoLayer { d: "M 3.4 12 A 8.6 8.6 0 1 0 20.6 12 A 8.6 8.6 0 1 0 3.4 12 Z", fill: None },
+    LogoLayer { d: "M 5.55 7.6 A 1.85 1.85 0 1 0 9.25 7.6 A 1.85 1.85 0 1 0 5.55 7.6 Z", fill: Some(crate::theme::DARK.text_2) },
+    LogoLayer { d: "M 6.65 7.6 A 0.75 0.75 0 1 0 8.15 7.6 A 0.75 0.75 0 1 0 6.65 7.6 Z", fill: None },
+    LogoLayer {
+        d: "M 5.4 17.2 C 5.4 12.6 6.8 8.4 9.5 6.4 C 11.8 4.9 14.8 5.2 16.9 6.9 C 18.8 7.4 19.9 8.4 19.8 10.0 L 19.5 10.4 L 13.0 11.5 L 12.0 17.2 Z",
+        fill: Some(crate::theme::DARK.text_2),
+    },
+    LogoLayer {
+        d: "M 13.8 10.1 C 15.8 9.4 18.3 9.5 19.7 10.3 C 19.3 11.9 17.7 12.9 15.6 13.0 C 14.9 14.5 14.7 16.0 14.9 17.5 L 10.4 17.5 C 10.4 14.4 11.6 11.2 13.8 10.1 Z",
+        fill: Some(crate::theme::DARK.text),
+    },
+    LogoLayer {
+        d: "M 12.6 8.0 A 1.2 1.2 0 1 0 15.0 8.0 A 1.2 1.2 0 1 0 12.6 8.0 Z M 18.05 8.7 A 1.05 1.05 0 1 0 20.15 8.7 A 1.05 1.05 0 1 0 18.05 8.7 Z",
+        fill: None,
+    },
+    LogoLayer {
+        d: "M 4.1 15.4 C 6.8 14.1 9.8 14.2 12.5 15.5 C 15.2 16.8 17.6 16.8 19.9 15.4 L 18.5 17.8 L 12.5 17.8 L 5.5 16.8 Z",
+        fill: None,
+    },
+    LogoLayer {
+        d: "M 3.6 16.9 C 6.4 15.4 9.6 15.5 12.5 16.9 C 15.4 18.2 18.0 18.2 20.4 16.9 L 19.4 18.5 L 16.8 20.4 L 12.0 21.2 L 7.2 20.4 L 4.6 18.5 Z",
+        fill: Some(crate::theme::DARK.text_faint),
+    },
 ];
-/// Hole in front card: center and radius, in background color.
-pub const LOGO_HOLE: (f32, f32, f32) = (6.75, 16.0, 1.7);
-/// Stroke thickness (centered on border, like SVG `stroke`).
-pub const LOGO_STROKE: f32 = 1.5;
 
-/// Signed distance (negative inside) from `p` to rounded rectangle of card.
-fn card_distance(p: (f32, f32), c: &LogoCard) -> f32 {
-    let qx = (p.0 - (c.x + c.w / 2.0)).abs() - (c.w / 2.0 - c.r);
-    let qy = (p.1 - (c.y + c.h / 2.0)).abs() - (c.h / 2.0 - c.r);
-    qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - c.r
-}
-
-/// Brand color at point `p` on 24×24 grid (`None`: transparent background). `outline` is color of
-/// card outline and hole.
-fn logo_sample(p: (f32, f32), outline: Color32) -> Option<Color32> {
-    let mut out = None;
-    for c in &LOGO_CARDS {
-        let d = card_distance(p, c);
-        if c.outlined && d.abs() <= LOGO_STROKE / 2.0 {
-            out = Some(outline);
-        } else if d <= 0.0 {
-            out = Some(c.fill);
+/// Brandmark rasterized at `size`×`size` pixels: unpremultiplied RGBA, transparent background.
+/// Same design as `memory/brand/holt.svg`, the window icon and `.ico`.
+pub fn logo_rgba(size: usize, outline: Color32) -> Vec<u8> {
+    let base = LOGO_LAYERS[0].fill.unwrap_or(outline);
+    let alpha = rasterize(&flatten_path(LOGO_LAYERS[0].d), 24.0, size, size);
+    let mut rgb = vec![[base.r() as f32, base.g() as f32, base.b() as f32]; size * size];
+    for layer in &LOGO_LAYERS[1..] {
+        let c = layer.fill.unwrap_or(outline);
+        let (cr, cg, cb) = (c.r() as f32, c.g() as f32, c.b() as f32);
+        let cov = rasterize(&flatten_path(layer.d), 24.0, size, size);
+        for (px, &t) in rgb.iter_mut().zip(&cov) {
+            let t = t.clamp(0.0, 1.0);
+            if t > 0.0 {
+                px[0] += (cr - px[0]) * t;
+                px[1] += (cg - px[1]) * t;
+                px[2] += (cb - px[2]) * t;
+            }
         }
     }
-    let (hx, hy, hr) = LOGO_HOLE;
-    if (p.0 - hx).hypot(p.1 - hy) <= hr {
-        out = Some(outline);
-    }
-    out
-}
-
-/// Brandmark rasterized at `size`×`size` pixels: unpremultiplied RGBA, transparent background, with
-/// 4×4 samples per pixel for smooth edges. Same design as window icon and `.ico`.
-pub fn logo_rgba(size: usize, outline: Color32) -> Vec<u8> {
-    const N: usize = 4;
-    let scale = 24.0 / size as f32;
     let mut out = Vec::with_capacity(size * size * 4);
-    for y in 0..size {
-        for x in 0..size {
-            let (mut r, mut g, mut b, mut hits) = (0u32, 0u32, 0u32, 0u32);
-            for sy in 0..N {
-                for sx in 0..N {
-                    let p = ((x as f32 + (sx as f32 + 0.5) / N as f32) * scale, (y as f32 + (sy as f32 + 0.5) / N as f32) * scale);
-                    if let Some(c) = logo_sample(p, outline) {
-                        r += c.r() as u32;
-                        g += c.g() as u32;
-                        b += c.b() as u32;
-                        hits += 1;
-                    }
-                }
-            }
-            if hits == 0 {
-                out.extend_from_slice(&[0, 0, 0, 0]);
-            } else {
-                let a = (hits as f32 / (N * N) as f32 * 255.0).round() as u8;
-                out.extend_from_slice(&[(r / hits) as u8, (g / hits) as u8, (b / hits) as u8, a]);
-            }
+    for (px, &a) in rgb.iter().zip(&alpha) {
+        let a = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
+        if a == 0 {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+        } else {
+            out.extend_from_slice(&[px[0].round() as u8, px[1].round() as u8, px[2].round() as u8, a]);
         }
     }
     out
@@ -688,20 +675,29 @@ mod tests {
     }
 
     #[test]
-    fn the_logo_is_three_cards_and_a_hole() {
+    fn the_logo_is_an_otter_in_a_river_medallion() {
         let bg = crate::theme::pal().bg;
         let rgba = logo_rgba(96, bg);
         let at = |x, y| pixel(&rgba, 96, x, y);
-        // Each card in its color (in areas not covered by card in front).
-        assert_eq!(at(19.0, 4.0), [0x6b, 0x71, 0x7c, 255], "back card");
-        assert_eq!(at(17.0, 9.0), [0xaa, 0xb1, 0xbb, 255], "middle card");
-        assert_eq!(at(14.0, 19.5), [0xe6, 0xe8, 0xeb, 255], "front card");
-        // Hole and outline use background color.
-        assert_eq!(at(6.75, 16.0), [bg.r(), bg.g(), bg.b(), 255], "hole");
-        assert_eq!(at(10.0, 11.0), [bg.r(), bg.g(), bg.b(), 255], "front card outline");
-        // Outside the cards, background is transparent.
+        // Outer medallion rim and river wave in slate (`text_faint`), head in `text_2`, throat in `text`.
+        assert_eq!(at(12.0, 2.7), [0x6b, 0x71, 0x7c, 255], "medallion rim");
+        assert_eq!(at(12.0, 19.0), [0x6b, 0x71, 0x7c, 255], "river wave");
+        assert_eq!(at(10.5, 9.0), [0xaa, 0xb1, 0xbb, 255], "otter head");
+        assert_eq!(at(15.0, 11.5), [0xe6, 0xe8, 0xeb, 255], "otter throat patch");
+        // Dark cavity, eye and nose use `outline` (`bg`).
+        assert_eq!(at(12.0, 4.3), [bg.r(), bg.g(), bg.b(), 255], "dark cavity");
+        assert_eq!(at(13.8, 8.0), [bg.r(), bg.g(), bg.b(), 255], "eye");
+        assert_eq!(at(19.1, 8.7), [bg.r(), bg.g(), bg.b(), 255], "nose");
+        // Outside the medallion, background is transparent.
         assert_eq!(at(1.0, 1.0)[3], 0);
         assert_eq!(at(22.5, 22.5)[3], 0);
+
+        // `memory/brand/holt.svg` stays in sync with `LOGO_LAYERS`.
+        let svg =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../memory/brand/holt.svg")).expect("memory/brand/holt.svg");
+        for layer in &LOGO_LAYERS {
+            assert!(svg.contains(layer.d), "missing layer path in memory/brand/holt.svg: {}", layer.d);
+        }
     }
 
     #[test]
