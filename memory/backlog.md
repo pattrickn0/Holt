@@ -30,6 +30,12 @@ test that fails becomes an item here. Product direction and decision-makers are 
    and which process holds them open, or if only empty directories remained. On the next occurrence, read the notice
    (search for "worktree" in the log) and fix the cause.
 
+7. [ ] **Bridge events wait while Holt is idle** (seen 2026-11-01). A task started with `ask-agent --task new --start`
+   while the window was not being drawn (hidden in the tray or idle) did not open its tab for about an hour: the brief was
+   "delivered" (`CoreEvent::Deliver`) but `Deck::work` only ran when the window woke up; a second launch's
+   `POST /activate` did not wake it either. Find what wakes the event loop for core events (`EventLoopProxy`?) in
+   `app.rs` and make deliveries, task starts and `Activate` run with the window hidden.
+
 ## Later (on the list, not yet)
 
 5. [ ] **Installer for Windows** (0.4).
