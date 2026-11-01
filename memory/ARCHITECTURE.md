@@ -42,7 +42,7 @@ Each interactive tab (and headless execution) receives a sanitized environment:
 
 ### Holt instructions and folder trust (`agents.rs`, `trust.rs`, `workspace.rs`)
 
-Bridge instructions (use of `ask-agent`, prohibition of CLI-internal subagents without user request, `--models`/`--team`/`--learn`/`--outline`, and `memory/learnings/`) arrive through each CLI's dedicated channel, without depending on a prior `AGENTS.md`:
+Bridge instructions (use of `ask-agent`, prohibition of CLI-internal subagents without user request, rule that any project change goes through a task via `ask-agent --task new` while only questions and checks are answered in place, `--models`/`--team`/`--learn`/`--outline`, and `memory/learnings/`) arrive through each CLI's dedicated channel, without depending on a prior `AGENTS.md`:
 
 | CLI | Instruction delivery channel |
 | :-- | :-- |

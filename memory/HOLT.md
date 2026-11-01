@@ -14,8 +14,10 @@ what goes into `main` (`main` is the stable version; day-to-day work happens on 
 
 ## Principles
 
-- **The unit of work is the task, not the message.** A task has a brief, an agent with a model, an
-  isolated branch, a report, a diff, and tests. Conversation between agents is a means, not the end.
+- **The unit of work is the task, not the message.** Any change to the project (bug fix, feature, validation fix, even a
+  small tweak) goes through a task (`ask-agent --task new`), with a brief, an agent with a model, an isolated worktree
+  and branch, a report, a diff, and a review; only questions, explanations, investigations, and quick checks that change
+  no files are answered in place. Conversation between agents is a means, not the end.
 - **Everything visible.** An agent working appears in a tab; no invisible work that the human cannot follow.
 - **Isolation by default.** Each task in its own worktree: parallel agents do not interfere with each other, and discarding
   an attempt costs nothing.
