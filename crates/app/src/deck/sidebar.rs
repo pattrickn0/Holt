@@ -11,6 +11,40 @@ impl Deck {
     pub fn refresh_tree(&mut self) {
         self.workspace = self.core.workspace();
         self.tree.cache.clear();
+        self.tree.all_files = None;
+    }
+
+    /// All non-directory files in the workspace (up to 8 levels deep / 5,000 files), cached until `refresh_tree`.
+    pub fn all_workspace_files(&mut self) -> Vec<DirEntry> {
+        if let Some(files) = &self.tree.all_files {
+            return files.clone();
+        }
+        let mut out = Vec::new();
+        self.collect_all_files("", 0, &mut out);
+        self.tree.all_files = Some(out.clone());
+        out
+    }
+
+    fn collect_all_files(&mut self, rel: &str, depth: usize, out: &mut Vec<DirEntry>) {
+        if depth > 8 || out.len() >= 5_000 {
+            return;
+        }
+        if !self.tree.cache.contains_key(rel) {
+            let items = self.core.read_dir(rel);
+            self.tree.cache.insert(rel.to_owned(), items);
+        }
+        let items = self.tree.cache.get(rel).cloned().unwrap_or_default();
+        for e in items {
+            if out.len() >= 5_000 {
+                break;
+            }
+            if e.is_dir {
+                let rel_path = e.rel_path.clone();
+                self.collect_all_files(&rel_path, depth + 1, out);
+            } else {
+                out.push(e);
+            }
+        }
     }
 
     /// Visible rows of the tree (loads expanded folders on demand).
@@ -135,7 +169,13 @@ impl Deck {
     /// The project on screen changed: folder, tree (from scratch), git and github.
     pub(super) fn after_project_change(&mut self) {
         self.workspace = self.core.workspace();
-        self.tree = TreeState { expanded: HashSet::from([String::new()]), ..Default::default() };
+        self.tree = TreeState {
+            expanded: HashSet::from([String::new()]),
+            filter_open: self.tree.filter_open,
+            filter: self.tree.filter.clone(),
+            changed_only: self.tree.changed_only,
+            ..Default::default()
+        };
         self.refresh_tree();
         self.git_reset_for_project();
         self.git_refresh();

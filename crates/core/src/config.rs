@@ -60,7 +60,7 @@ impl Default for ProjectCfg {
             tab_efforts: BTreeMap::new(),
             tab_sessions: BTreeMap::new(),
             tab_views: BTreeMap::new(),
-            collapsed: false,
+            collapsed: true,
         }
     }
 }
@@ -205,6 +205,16 @@ pub struct Config {
     // --- Layout (new in the Rust version; the Electron version kept it only in CSS) ---
     pub sidebar_width: f32,
     pub sidebar_collapsed: bool,
+    /// Fraction of the sidebar height below the `PROJECTS` header that caps the `PROJECTS` list (0 = default).
+    pub sidebar_projects_ratio: f32,
+    /// Whether the `FILES` section of the sidebar is collapsed (pinned at the bottom).
+    pub files_collapsed: bool,
+    /// Whether the `FILES` filter box is open.
+    pub files_filter_open: bool,
+    /// Current filter text in the `FILES` section.
+    pub files_filter: String,
+    /// Whether the `FILES` section filters to only files with a Git status letter.
+    pub files_changed_only: bool,
     /// Width of the right bar (tasks, git, GitHub); 0 = default. It does not
     /// collapse. (Replaces `bottomHeight`/`feedCollapsed` of the old bottom panel, ignored when reading.)
     pub right_panel_width: f32,
@@ -266,6 +276,11 @@ impl Default for Config {
             sound_enabled: true,
             sidebar_width: 220.0,
             sidebar_collapsed: false,
+            sidebar_projects_ratio: 0.0,
+            files_collapsed: false,
+            files_filter_open: false,
+            files_filter: String::new(),
+            files_changed_only: false,
             right_panel_width: 0.0,
             organization: None,
             split_enabled: true,
@@ -308,7 +323,8 @@ impl Config {
 
     /// Configuration with a single active project in folder `path` (tests and embedded use).
     pub fn with_project(path: PathBuf) -> Self {
-        let project = ProjectCfg::new(path.clone(), None, &[]);
+        let mut project = ProjectCfg::new(path.clone(), None, &[]);
+        project.collapsed = false;
         Self { active_project: project.id.clone(), workspace: path, project_list: vec![project], ..Self::default() }
     }
 
@@ -439,6 +455,7 @@ impl Config {
                     project.pane_order = std::mem::take(&mut self.pane_order);
                     project.split_rows = std::mem::take(&mut self.split_rows);
                     project.split_cols = std::mem::take(&mut self.split_cols);
+                    project.collapsed = false;
                     self.active_project = project.id.clone();
                 }
                 self.project_list.push(project);
@@ -981,5 +998,31 @@ mod tests {
         cfg.fix_workspace(&p, no_home());
         assert_eq!(cfg.active_project, first.id);
         assert_eq!(cfg.workspace, first.path);
+    }
+
+    #[test]
+    fn inactive_projects_start_collapsed_and_sidebar_state_persists() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let p = paths(tmp.path());
+        let mut cfg = Config::with_project(tmp.path().join("active"));
+        let inactive = cfg.add_project(tmp.path().join("inactive"), None);
+        assert!(!cfg.project_list[0].collapsed, "active project starts expanded");
+        assert!(inactive.collapsed, "inactive project starts collapsed");
+
+        cfg.sidebar_projects_ratio = 0.38;
+        cfg.files_collapsed = true;
+        cfg.files_filter_open = true;
+        cfg.files_filter = "sidebar".into();
+        cfg.files_changed_only = true;
+        cfg.save(&p.config_file).expect("save");
+
+        let back = Config::load_from(std::slice::from_ref(&p.config_file), &p, no_home());
+        assert_eq!(back.sidebar_projects_ratio, 0.38);
+        assert!(back.files_collapsed);
+        assert!(back.files_filter_open);
+        assert_eq!(back.files_filter, "sidebar");
+        assert!(back.files_changed_only);
+        assert!(!back.project_list[0].collapsed);
+        assert!(back.project_list[1].collapsed);
     }
 }

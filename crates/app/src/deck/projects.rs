@@ -61,11 +61,23 @@ impl Deck {
 
     /// Shows or hides the agent list of project `id` in the sidebar (saved in the config).
     pub fn toggle_project_expanded(&mut self, id: &str) {
+        if let Some(demo) = &mut self.debug_projects {
+            if let Some(p) = demo.iter_mut().find(|p| p.id == id) {
+                p.expanded = !p.expanded;
+            }
+            return;
+        }
         self.core.update_project(id, |p| p.collapsed = !p.collapsed);
     }
 
     /// Shows (`true`) or hides the agent list of every project.
     pub fn set_all_projects_expanded(&mut self, expanded: bool) {
+        if let Some(demo) = &mut self.debug_projects {
+            for p in demo {
+                p.expanded = expanded;
+            }
+            return;
+        }
         for p in self.core.projects() {
             self.core.update_project(&p.id, |p| p.collapsed = !expanded);
         }

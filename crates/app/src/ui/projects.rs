@@ -16,7 +16,7 @@ use holt_core::t;
 /// Height of a project row and of the "+ New agent" row.
 pub const ROW_H: f32 = 22.0;
 /// Height of an agent row.
-const AGENT_ROW_H: f32 = 24.0;
+pub const AGENT_ROW_H: f32 = 24.0;
 pub const SECTION_H: f32 = 24.0;
 /// Side margin of the rows: the selection and the hover do not touch the island's edge.
 const SIDE_MARGIN: f32 = 4.0;
@@ -88,7 +88,7 @@ pub fn model_tag(model: &str) -> String {
 
 /// Height of what the project list draws: one row per project and, in the open ones, one per agent and, in
 /// the active one, the "+ New agent" row.
-fn list_height(projects: &[ProjectView]) -> f32 {
+pub fn list_height(projects: &[ProjectView]) -> f32 {
     projects
         .iter()
         .map(|p| {
@@ -96,6 +96,100 @@ fn list_height(projects: &[ProjectView]) -> f32 {
             ROW_H + agents
         })
         .sum()
+}
+
+/// The agent name without the CLI prefix (`"Claude · Dev"` → `"Dev"`, `"Claude · Dev · Ana"` → `"Dev · Ana"`);
+/// a plain instance keeps the CLI name (`"Claude"` → `"Claude"`).
+pub fn agent_short_name(label: &str) -> &str {
+    match label.split_once(" · ") {
+        Some((_, rest)) if !rest.trim().is_empty() => rest,
+        _ => label,
+    }
+}
+
+/// Compact idle time for the sidebar agent row tail (`"idle 12 min"` → `"12m"`, `"ocioso 12 min"` → `"12min"`).
+pub fn compact_idle(status: &str) -> String {
+    if let Some(rest) = status.strip_prefix("idle ") {
+        rest.replace(" min", "m").replace(" h", "h")
+    } else if let Some(rest) = status.strip_prefix("ocioso ") {
+        rest.replace(" min", "min").replace(" h", "h")
+    } else {
+        status.to_owned()
+    }
+}
+
+/// Summary of a project's running/finished agents for its collapsed row: glyphs + counts, nothing when all idle.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProjectStateSummary {
+    pub working: usize,
+    pub working_color: Option<Color32>,
+    pub done: usize,
+    pub done_color: Option<Color32>,
+}
+
+impl ProjectStateSummary {
+    pub fn is_empty(&self) -> bool {
+        self.working == 0 && self.done == 0
+    }
+}
+
+/// Counts the working (`busy`) and finished-unseen (`done && !focused`) agents of a project, keeping the
+/// first agent's color of each kind for the glyph.
+pub fn project_state_summary(agents: &[AgentBadge], active_project: bool, active_tab: Option<usize>) -> ProjectStateSummary {
+    let mut out = ProjectStateSummary::default();
+    for ag in agents {
+        if ag.busy {
+            out.working += 1;
+            out.working_color.get_or_insert(ag.color);
+        } else if ag.done && !(active_project && active_tab.is_some() && ag.tab == active_tab) {
+            out.done += 1;
+            out.done_color.get_or_insert(ag.color);
+        }
+    }
+    out
+}
+
+/// What the right-hand state tail of an agent row shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TailKind {
+    /// Short model tag (`"opus"`, `"flash"`) shown on hover in `text_3`.
+    Model,
+    /// Active phase (`"testing"`, `"editing"`) shown in `text_2`.
+    Working,
+    /// Finished unseen (`"done"` / `"feito"`) shown in accent.
+    Done,
+    /// Compact idle duration (`"12m"` / `"12min"`) shown in `text_3`.
+    Idle,
+}
+
+/// Computes the right-hand state tail of an agent row in priority order: hovered model tag > working phase >
+/// finished unseen `"done"` > compact idle duration.
+pub fn agent_state_tail(ag: &AgentBadge, is_active_tab: bool, hovered: bool) -> Option<(String, TailKind)> {
+    if hovered {
+        if let Some(tag) = ag.model.as_deref().map(model_tag).filter(|s| !s.is_empty()) {
+            return Some((tag, TailKind::Model));
+        }
+    }
+    if ag.busy {
+        let phase = ag.status.as_deref().unwrap_or_default().trim();
+        if !phase.is_empty() {
+            return Some((phase.to_owned(), TailKind::Working));
+        }
+        return None;
+    }
+    if ag.done && !is_active_tab {
+        return Some((t!("done").to_owned(), TailKind::Done));
+    }
+    let idle = ag.status.as_deref().map(compact_idle).unwrap_or_default();
+    (!idle.is_empty()).then_some((idle, TailKind::Idle))
+}
+
+/// Draws a 12 px `+` icon centered at `center` (aligns with the 12 px agent marks).
+fn paint_plus_12(p: &Painter, center: Pos2, color: Color32) {
+    let s = Stroke::new(1.4, color);
+    let r = 4.0;
+    p.line_segment([center + Vec2::new(-r, 0.0), center + Vec2::new(r, 0.0)], s);
+    p.line_segment([center + Vec2::new(0.0, -r), center + Vec2::new(0.0, r)], s);
 }
 
 /// Opens a folder in the operating system's file explorer.
@@ -283,8 +377,8 @@ struct AgentClick {
     tab: Option<usize>,
 }
 
-/// Draws the PROJECTS section and advances `top_y`.
-pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging: bool) {
+/// Draws the PROJECTS section and advances `top_y`. `max_list_h` caps the scrollable project/agent list.
+pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_h: f32, dragging: bool) {
     let ctx = ui.ctx().clone();
 
     if deck.sidebar_collapsed {
@@ -303,7 +397,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
     // ---------- Header of the PROJECTS section ----------
     let head_rect = Rect::from_min_size(Pos2::new(rect.min.x, *top_y + 4.0), Vec2::new(rect.width(), SECTION_H));
     *top_y = head_rect.max.y;
-    super::section_label(&painter, head_rect, t!("PROJECTS"));
+    super::section_label(&painter, head_rect.shrink2(Vec2::new(0.0, 1.0)), t!("PROJECTS"));
 
     // "+" button for a new project
     let plus_r = Rect::from_min_size(Pos2::new(head_rect.max.x - 24.0, head_rect.min.y + 2.0), Vec2::new(20.0, 20.0));
@@ -314,14 +408,14 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
         ctx.set_cursor_icon(CursorIcon::PointingHand);
     }
     let plus_color = if plus_hov { theme::pal().text } else { theme::pal().text_2 };
-    text_in(&painter, plus_r, Align2::CENTER_CENTER, "+", theme::ui_semibold(14.0), plus_color);
-    if tip(plus_resp, t!("New project…")).clicked() {
+    paint_plus_12(&painter, plus_r.center(), plus_color);
+    if tip(plus_resp, t!("New project")).clicked() {
         deck.new_project_dialog();
     }
 
     // Expand/collapse the agent list of every project
     let any_open = projects.iter().any(|p| p.expanded);
-    let all_r = plus_r.translate(Vec2::new(-22.0, 0.0));
+    let all_r = plus_r.translate(Vec2::new(-20.0, 0.0));
     let all_resp = clickable(ui, all_r, Id::new("proj-all-btn"));
     let all_hov = all_resp.hovered() && !dragging;
     if all_hov {
@@ -335,10 +429,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
     }
 
     // ---------- Project and agent list ----------
-    // Only the height of the content, up to 40 % of the bar (then the list scrolls).
     let gap = ui.spacing().item_spacing.y;
-    let content_h = list_height(&projects) + gap * projects.len() as f32;
-    let max_list_h = content_h.min((rect.height() * 0.40).round());
     let list_top = *top_y + 2.0;
     let list_rect = Rect::from_min_max(Pos2::new(rect.min.x, list_top), Pos2::new(rect.max.x, list_top + max_list_h));
 
@@ -367,7 +458,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                 let (row_r, resp) = ui.allocate_exact_size(Vec2::new(row_w, ROW_H), Sense::click());
                 let inner = row_r.shrink2(Vec2::new(SIDE_MARGIN, 0.0));
                 // The arrow sits on top of the row (created later, it gets the click).
-                let can_expand = proj.active || !proj.agents.is_empty();
+                let has_folder = !proj.path.as_os_str().is_empty();
+                let can_expand = (proj.active && has_folder) || !proj.agents.is_empty();
                 let chev_r = Rect::from_min_size(inner.min, Vec2::new(20.0, ROW_H));
                 let chev_resp = can_expand.then(|| ui.interact(chev_r, Id::new(("proj-chevron", &proj.id)), Sense::click()));
                 let chev_hov = chev_resp.as_ref().is_some_and(|r| r.hovered()) && !dragging;
@@ -385,36 +477,65 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     paint_drop_target(&p, inner, true, active_color);
                     drop_target = Some(DropTarget { boss: None, ok: true });
                 }
-                if can_expand {
-                    let c = if chev_hov { theme::pal().text_2 } else { theme::pal().text_3 };
-                    paint_chevron(&p, Pos2::new(inner.min.x + 10.5, row_r.center().y), proj.expanded, c);
-                }
+                let chev_color = if !can_expand {
+                    theme::pal().text_faint
+                } else if chev_hov {
+                    theme::pal().text_2
+                } else {
+                    theme::pal().text_3
+                };
+                paint_chevron(&p, Pos2::new(inner.min.x + 10.5, row_r.center().y), can_expand && proj.expanded, chev_color);
 
-                // Right side: the ring of an agent that finished unseen (a project that is not open) and the count.
+                // Right side (when collapsed): state summary as glyphs + numbers in meta(10) text_3; nothing when all idle.
                 let mut right = inner.max.x - 6.0;
-                let unseen = proj.agents.iter().find(|a| a.done && a.alive).filter(|_| !proj.active);
-                if let Some(ag) = unseen {
-                    p.circle_stroke(Pos2::new(right - 3.0, row_r.center().y), 3.75, Stroke::new(1.5, ag.color));
-                    right -= 6.0 + 6.0;
-                }
-                let count = proj.agents.len();
-                if count > 0 {
-                    let count_str = count.to_string();
-                    let g = galley(&p, &count_str, theme::ui(10.5), theme::pal().text_3);
-                    let w = g.size().x;
-                    place(
-                        &p,
-                        Rect::from_min_max(Pos2::new(right - w, row_r.min.y), Pos2::new(right, row_r.max.y)),
-                        Align2::LEFT_CENTER,
-                        g,
-                        theme::pal().text_3,
-                    );
-                    right -= w + 6.0;
+                let summary = project_state_summary(&proj.agents, proj.active, deck_active);
+                if !proj.expanded && !summary.is_empty() {
+                    if let (count @ 1.., Some(done_color)) = (summary.done, summary.done_color) {
+                        let s = count.to_string();
+                        let g = galley(&p, &s, theme::meta(10.0), theme::pal().text_3);
+                        let w = g.size().x;
+                        place(
+                            &p,
+                            Rect::from_min_max(Pos2::new(right - w, row_r.min.y), Pos2::new(right, row_r.max.y)),
+                            Align2::LEFT_CENTER,
+                            g,
+                            theme::pal().text_3,
+                        );
+                        right -= w + 4.0;
+                        p.circle_stroke(Pos2::new(right - 3.0, row_r.center().y), 3.0, Stroke::new(1.5, done_color));
+                        right -= 6.0 + 7.0;
+                    }
+                    if let (count @ 1.., Some(work_color)) = (summary.working, summary.working_color) {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+                        let s = count.to_string();
+                        let g = galley(&p, &s, theme::meta(10.0), theme::pal().text_3);
+                        let w = g.size().x;
+                        place(
+                            &p,
+                            Rect::from_min_max(Pos2::new(right - w, row_r.min.y), Pos2::new(right, row_r.max.y)),
+                            Align2::LEFT_CENTER,
+                            g,
+                            theme::pal().text_3,
+                        );
+                        right -= w + 4.0;
+                        let dot_c = Pos2::new(right - 2.5, row_r.center().y);
+                        let t_anim = ctx.input(|inp| inp.time);
+                        let wave = (t_anim * 4.8).sin() as f32 * 0.5 + 0.5;
+                        p.circle_filled(dot_c, 2.5 + 2.0 * wave, theme::with_opacity(work_color, 0.30 * (1.0 - wave)));
+                        p.circle_filled(dot_c, 2.5, work_color);
+                        right -= 5.0 + 6.0;
+                    }
                 }
 
                 // Project name (with ellipsis so it does not touch what is on the right)
                 let name_x = inner.min.x + 6.0 + 9.0 + 6.0;
-                let name_color = if proj.active || hovered { theme::pal().text } else { theme::pal().text_2 };
+                let name_color = if !can_expand && !proj.active {
+                    theme::pal().text_3
+                } else if proj.active || hovered {
+                    theme::pal().text
+                } else {
+                    theme::pal().text_2
+                };
                 let name_g = galley_trunc(&p, &proj.name, theme::ui_semibold(12.0), name_color, (right - name_x).max(1.0));
                 place(
                     &p,
@@ -487,7 +608,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     let logo_x = agent_x(tab_r, node.depth);
                     paint_agent_mark(deck, &ctx, &p, Pos2::new(logo_x, tab_r.center().y), ag, is_active_tab);
 
-                    // The name comes first; the phase/idle/model on the right is cut with an ellipsis before the name is cut.
+                    // The name (without CLI prefix) comes first; the state tail on the right is cut before the name.
                     let right = sel_r.max.x - 8.0;
                     let name_x = logo_x + MARK_BOX / 2.0 + GAP;
                     let avail_w = (right - name_x).max(1.0);
@@ -499,7 +620,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     } else {
                         theme::pal().text
                     };
-                    let tab_g = galley_trunc(&p, &ag.label, tab_font, tab_color, avail_w);
+                    let short_name = agent_short_name(&ag.label);
+                    let tab_g = galley_trunc(&p, short_name, tab_font, tab_color, avail_w);
                     let placed_r = place(
                         &p,
                         Rect::from_min_max(Pos2::new(name_x, tab_r.min.y), Pos2::new(right, tab_r.max.y)),
@@ -514,9 +636,14 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     if !ag.busy && ag.status.is_some() {
                         ctx.request_repaint_after(std::time::Duration::from_secs(60));
                     }
-                    let right_text = ag.status.clone().or_else(|| ag.model.as_deref().map(model_tag)).filter(|s| !s.is_empty());
-                    if let (Some(text), Some(meta_avail)) = (right_text, right_meta_budget(avail_w, placed_r.width())) {
-                        let mcolor = theme::pal().text_3;
+                    if let (Some((text, kind)), Some(meta_avail)) =
+                        (agent_state_tail(ag, is_active_tab, tab_hov), right_meta_budget(avail_w, placed_r.width()))
+                    {
+                        let mcolor = match kind {
+                            TailKind::Working => theme::pal().text_2,
+                            TailKind::Done => ag.color,
+                            TailKind::Model | TailKind::Idle => theme::pal().text_3,
+                        };
                         let mg = galley_trunc(&p, &text, theme::meta(10.0), mcolor, meta_avail);
                         let w = mg.size().x;
                         place(
@@ -561,19 +688,21 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     continue;
                 }
 
-                // "+ New agent" closes the project list and opens the agent menu (the same one as Ctrl+T).
+                // "+ New agent": 12 px "+" at the logo column (x = 30), followed by "New agent"; text_3, text on hover.
                 let (add_r, add_resp) = ui.allocate_exact_size(Vec2::new(row_w, ROW_H), Sense::click());
                 let add_hov = (add_resp.hovered() || deck.new_tab_menu_open) && !dragging;
                 if add_hov {
                     p.rect_filled(add_r.shrink2(Vec2::new(SIDE_MARGIN, 0.0)), 5.0, theme::pal().hover);
                     ctx.set_cursor_icon(CursorIcon::PointingHand);
                 }
-                let add_color = if add_hov { theme::pal().text_2 } else { theme::pal().text_3 };
+                let add_color = if add_hov { theme::pal().text } else { theme::pal().text_3 };
+                paint_plus_12(&p, Pos2::new(add_r.min.x + AGENT_X, add_r.center().y), add_color);
                 let add_text = Rect::from_min_max(
-                    Pos2::new(add_r.min.x + AGENT_X - MARK_BOX / 2.0, add_r.min.y),
+                    Pos2::new(add_r.min.x + AGENT_X + MARK_BOX / 2.0 + GAP, add_r.min.y),
                     Pos2::new(add_r.max.x - 10.0, add_r.max.y),
                 );
-                text_in(&p, add_text, Align2::LEFT_CENTER, t!("+ New agent"), theme::ui(11.5), add_color);
+                let add_g = galley_trunc(&p, t!("New agent"), theme::ui(11.5), add_color, add_text.width().max(1.0));
+                place(&p, add_text, Align2::LEFT_CENTER, add_g, add_color);
                 if ui.is_rect_visible(add_r) {
                     new_agent_anchor = Some(add_r);
                 }
@@ -585,11 +714,6 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
     );
 
     *top_y = list_top + scroll_output.inner_rect.height().min(max_list_h);
-
-    // Project separator, as wide as the island
-    *top_y += 6.0;
-    super::separator(&painter, Pos2::new(rect.min.x, *top_y + 0.5), Pos2::new(rect.max.x, *top_y + 0.5));
-    *top_y += 1.0;
 
     // Agent drag: a "ghost" next to the pointer; on release, the boss changes.
     let mut set_boss = None;
@@ -970,5 +1094,82 @@ mod tests {
         let rows = agent_tree(&agents);
         assert_eq!(rows.len(), 4, "nobody disappears from the list");
         assert_eq!(shape(&rows), [(0, 0), (3, 0), (1, 0), (2, 1)]);
+    }
+
+    #[test]
+    fn agent_short_name_drops_cli_prefix_and_keeps_plain_instance() {
+        assert_eq!(agent_short_name("Claude"), "Claude");
+        assert_eq!(agent_short_name("Codex"), "Codex");
+        assert_eq!(agent_short_name("Claude · Dev"), "Dev");
+        assert_eq!(agent_short_name("Claude · Review"), "Review");
+        assert_eq!(agent_short_name("Antigravity · Sidebar"), "Sidebar");
+        assert_eq!(agent_short_name("Claude · Dev · Ana"), "Dev · Ana");
+        assert_eq!(agent_short_name("Claude · Main · Bia"), "Main · Bia");
+    }
+
+    #[test]
+    fn compact_idle_shortens_english_and_portuguese_labels() {
+        assert_eq!(compact_idle("idle <1 min"), "<1m");
+        assert_eq!(compact_idle("idle 12 min"), "12m");
+        assert_eq!(compact_idle("idle 2 h"), "2h");
+        assert_eq!(compact_idle("ocioso <1 min"), "<1min");
+        assert_eq!(compact_idle("ocioso 12 min"), "12min");
+        assert_eq!(compact_idle("ocioso 2 h"), "2h");
+    }
+
+    #[test]
+    fn project_state_summary_counts_working_and_unseen_done_only() {
+        let mut a1 = ag("claude", None);
+        a1.color = theme::CLAUDE;
+        let mut a2 = ag("antigravity", None);
+        a2.color = theme::ANTIGRAVITY;
+        let mut a3 = ag("codex", None);
+        a3.color = theme::SHELL;
+
+        // All idle → empty summary.
+        let s = project_state_summary(&[a1.clone(), a2.clone()], false, None);
+        assert!(s.is_empty());
+        assert_eq!((s.working, s.done), (0, 0));
+
+        // 2 working + 1 done unseen → both counts and first color of each.
+        a1.done = true;
+        a2.busy = true;
+        a3.busy = true;
+        let s = project_state_summary(&[a1.clone(), a2.clone(), a3.clone()], false, None);
+        assert!(!s.is_empty());
+        assert_eq!(s.working, 2);
+        assert_eq!(s.working_color, Some(theme::ANTIGRAVITY));
+        assert_eq!(s.done, 1);
+        assert_eq!(s.done_color, Some(theme::CLAUDE));
+
+        // Focused tab in active project does not count as unseen done.
+        a1.tab = Some(0);
+        let s_active = project_state_summary(std::slice::from_ref(&a1), true, Some(0));
+        assert_eq!(s_active.done, 0);
+    }
+
+    #[test]
+    fn agent_state_tail_follows_hover_working_done_idle_priority() {
+        holt_core::i18n::english(|| {
+            let mut a = ag("claude@dev", None);
+            a.model = Some("claude-sonnet-5-5".into());
+            a.status = Some("idle 12 min".into());
+
+            // Idle shows compact idle time; hover shows model tag.
+            assert_eq!(agent_state_tail(&a, false, false), Some(("12m".into(), TailKind::Idle)));
+            assert_eq!(agent_state_tail(&a, false, true), Some(("sonnet".into(), TailKind::Model)));
+
+            // Finished unseen shows "done" in accent; hover still shows model tag.
+            a.done = true;
+            assert_eq!(agent_state_tail(&a, false, false), Some(("done".into(), TailKind::Done)));
+            assert_eq!(agent_state_tail(&a, true, false), Some(("12m".into(), TailKind::Idle)));
+            assert_eq!(agent_state_tail(&a, false, true), Some(("sonnet".into(), TailKind::Model)));
+
+            // Working shows phase; hover shows model tag.
+            a.busy = true;
+            a.status = Some("testing".into());
+            assert_eq!(agent_state_tail(&a, false, false), Some(("testing".into(), TailKind::Working)));
+            assert_eq!(agent_state_tail(&a, false, true), Some(("sonnet".into(), TailKind::Model)));
+        });
     }
 }
