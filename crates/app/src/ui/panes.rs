@@ -20,6 +20,8 @@ use holt_core::Organization;
 /// Height of the tab header of each window.
 pub const HEAD_H: f32 = 30.0;
 const GRIP_W: f32 = 18.0;
+/// Space on each side of the grip, so its dots do not touch the window's edge or the first tab.
+const GRIP_PAD: f32 = 4.0;
 const ICON_BTN: f32 = 20.0;
 const VIEW_TOGGLE_W: f32 = 48.0;
 
@@ -171,7 +173,7 @@ fn draw_pane(deck: &mut Deck, ui: &mut Ui, plan: &PanePlan, slot: usize, focused
     // ---------- Grip (dragging over another window swaps the two) ----------
     let mut x0 = head.min.x;
     if multi && !highlight {
-        let grip = Rect::from_min_size(head.min, Vec2::new(GRIP_W, HEAD_H - 1.0));
+        let grip = Rect::from_min_size(head.min + Vec2::new(GRIP_PAD, 0.0), Vec2::new(GRIP_W, HEAD_H - 1.0));
         let r = ui.interact(grip, Id::new(("pane-grip", &group)), Sense::drag());
         let dragging = deck.pane_drag == Some(slot);
         if r.hovered() || dragging {
@@ -191,7 +193,7 @@ fn draw_pane(deck: &mut Deck, ui: &mut Ui, plan: &PanePlan, slot: usize, focused
             deck.pane_drag = None;
         }
         tip(r, t!("Drag over another window to swap places"));
-        x0 = grip.max.x;
+        x0 = grip.max.x + GRIP_PAD;
     }
 
     // ---------- Action buttons to the right of the header (20×20, corners 4) ----------
