@@ -422,6 +422,11 @@ impl Deck {
                     }],
                 }),
             ),
+            Item::Assistant {
+                message: "m2b".into(),
+                text: "| Entry | Shortcut | Where |\n| :-- | :-- | :-- |\n| Close | Ctrl+W | `menus.rs` |\n| Close others | — | `menus.rs`, next to Close, only with two or more tabs in the pane |\n| Rename | F2 | `tabs.rs` |\n\nThe order of the remaining tabs does not change.".into(),
+                streaming: false,
+            },
             Item::User { text: "Which key did you pick for the new menu entry? I'm documenting it in the manual tests.".into(), from: Some("claude@dev".into()) },
             Item::Assistant { message: "m3".into(), text: "There is no shortcut yet. I'll answer claude@dev with that, then run the tests once you allow them.".into(), streaming: false },
             tool("t4", "Bash", json!({ "command": "cargo test -p holt tabs::" }), None),

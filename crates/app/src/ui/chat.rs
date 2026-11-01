@@ -812,7 +812,7 @@ fn draw_item(ui: &mut Ui, item: &Item, col_w: f32, cx: &mut ItemCx) {
         Item::Assistant { text, streaming, .. } => agent_row(ui, col_w, cx, |ui, _, cx| {
             markdown_style(ui);
             let shown = if *streaming { format!("{text} ▍") } else { text.clone() };
-            egui_commonmark::CommonMarkViewer::new().show(ui, cx.markdown, &shown);
+            markdown(ui, cx.markdown, &shown);
         }),
         Item::Thinking(text) => agent_row(ui, col_w, cx, |ui, _, _| {
             ui.label(egui::RichText::new(text).font(theme::ui(12.0)).italics().color(p.text_3));
@@ -845,6 +845,60 @@ fn agent_row(ui: &mut Ui, col_w: f32, cx: &mut ItemCx, body: impl FnOnce(&mut Ui
             body(ui, w, cx);
         });
     });
+}
+
+/// A message's markdown. Its tables go apart: egui's grid starts each column at last frame's width, so wrapped cells
+/// could only shrink (a column ended a letter wide). A table keeps its cells on one line and, wider than the column,
+/// scrolls sideways; the rest wraps.
+fn markdown(ui: &mut Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str) {
+    for (i, (table, part)) in markdown_parts(text).into_iter().enumerate() {
+        ui.push_id(i, |ui| {
+            if !table {
+                egui_commonmark::CommonMarkViewer::new().show(ui, cache, part);
+                return;
+            }
+            let style = ui.style_mut();
+            style.wrap_mode = Some(egui::TextWrapMode::Extend);
+            // The wheel keeps scrolling the conversation; sideways is Shift+wheel or the touchpad.
+            style.always_scroll_the_only_direction = false;
+            egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
+                egui_commonmark::CommonMarkViewer::new().show(ui, cache, part);
+            });
+        });
+    }
+}
+
+/// The message cut around its top-level tables (`true`), in order; the text between them is `false`. A table inside a
+/// list or a quote stays in its block.
+fn markdown_parts(text: &str) -> Vec<(bool, &str)> {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    let mut tables = Vec::new();
+    let mut depth = 0usize;
+    for (event, range) in Parser::new_ext(text, Options::ENABLE_TABLES).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Table(_)) if depth == 0 => {
+                tables.push(range);
+                depth += 1;
+            }
+            Event::Start(_) => depth += 1,
+            Event::End(TagEnd::Table) if depth == 1 => depth = 0,
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    let mut parts = Vec::new();
+    let mut at = 0;
+    for r in tables {
+        if !text[at..r.start].trim().is_empty() {
+            parts.push((false, &text[at..r.start]));
+        }
+        parts.push((true, &text[r.start..r.end]));
+        at = r.end;
+    }
+    if !text[at..].trim().is_empty() || parts.is_empty() {
+        parts.push((false, &text[at..]));
+    }
+    parts
 }
 
 /// Text style of the conversation's markdown (egui zeroes the app's spacing and `egui_commonmark` needs it).
@@ -1282,6 +1336,18 @@ mod tests {
             input,
             outcome: out.map(|(text, is_error)| ToolOutcome { tool_use_id: "t1".into(), text: text.into(), is_error, patch: vec![] }),
         }
+    }
+
+    #[test]
+    fn a_message_is_cut_around_its_top_level_tables() {
+        let text = "Intro\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nAfter\n\n- item\n\n  | x |\n  | - |\n  | 3 |\n";
+        let parts = markdown_parts(text);
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        assert_eq!(parts[0], (false, "Intro\n\n"));
+        assert!(parts[1].0 && parts[1].1.starts_with("| a | b |") && parts[1].1.contains("| 1 | 2 |"));
+        assert!(!parts[2].0 && parts[2].1.contains("After") && parts[2].1.contains("| x |"), "a table in a list stays in it");
+        assert_eq!(markdown_parts("plain"), vec![(false, "plain")]);
+        assert_eq!(markdown_parts(""), vec![(false, "")]);
     }
 
     #[test]
