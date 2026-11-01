@@ -141,12 +141,13 @@ pub enum CoreEvent {
     /// A question from `ask-agent` to an instance (tab): the UI opens the tab if `create` and types
     /// the `prompt` in its terminal when it is ready (see [`Delivery`]).
     Deliver(Delivery),
-    /// The agent of instance `id` of project `project` reported (through a hook) that it started (`busy`)
-    /// or finished a turn. More reliable than guessing from the terminal output; see `delivery::gate`.
+    /// The agent of instance `id` of project `project` reported (through a hook) that it started (`busy`),
+    /// changed phase (`PostToolUse`), or finished a turn. More reliable than guessing from the terminal output; see `delivery::gate`.
     AgentSignal {
         project: String,
         id: String,
         busy: bool,
+        phase: Option<crate::chat::Phase>,
     },
     /// The usage of some agent changed (see `Core::usage_snapshot`).
     UsageChanged,

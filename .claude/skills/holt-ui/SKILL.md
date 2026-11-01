@@ -99,9 +99,10 @@ to the system font.
   `text_3`, 6 px ring of the agent that finished unseen), **agent 24 px** (`AGENT_ROW_H`), "+ New agent" 22 px in
   `text_3`, file 20 px (11.5 px; `FILE_ROW_H`).
 - Agent tree: model icon (12 px in a 16 px box) centered at x 30 of the row, 12 px indent per level (up to 5), name in
-  Inter 12 px/500 (600 if selected) 7 px after the box, **model on the right** in `meta(10)`, `text_3`, shortened by
-  `projects::model_tag` (`sonnet`, `argon`, `flash`): the name is what gets cut (ellipsis), nothing wraps. Selected:
-  `accent_soft` + 2 px stripe in the accent color, name `text_strong`, model `text`.
+  Inter 12 px/500 (600 if selected) 7 px after the box, **phase while working or idle time when idle on the right**
+  (falling back to the model shortened by `projects::model_tag` when neither is known) in `meta(10)`, `text_3`: the
+  right-hand text is cut with an ellipsis before the name is cut, nothing wraps. Selected:
+  `accent_soft` + 2 px stripe in the accent color, name `text_strong`.
 - Explorer: 12 px indent, extension icons in `text_3` (gray, less color), Git letter (M, A, ?, D, R, U) in `meta(10)`
   `text_2`; selected `selected_soft`, hover `hover`.
 - Tabs (`ui/tabs.rs`): 30 px strip (`HEAD_H`), 22 px pills, corners 5, 3 px between them, padding 8; active in the
@@ -127,7 +128,8 @@ to the system font.
   amber "!" merge stopped, red "!" failed, pulsing dot in the agent's colour working, amber pulse resolving a conflict,
   dashed ring queued, hollow ring draft, green check completed, faint struck ring discarded), the title (12.5 px 600, two
   lines) with the wait on the right (`age_short`, 10.5 px `text_3`), then the state word (11 px 600 in `mark_color`: accent
-  for what needs you, `warning`, `danger_text`, `text_2`), the agent's 12 px logo + model tag · effort, the id (`meta`) and
+  for what needs you, `warning`, `danger_text`, `text_2`), the agent's 12 px logo + model tag · effort (plus the tab's
+  phase or idle time in `meta(10)` `text_3` in AGENTS WORKING when the tab is open), the id (`meta`) and
   `+N −M` right-aligned (`paint_diff_counts`, `success`/`danger_text`). NEEDS YOU rows have a 3.5 % white fill and their
   24 px actions: the main move (primary) and at most one ghost (the diff); what needs typing stays in the detail; only the first one gets `accent_wash` + `accent_edge`. FINISHED rows are 24 px.
   The fixed `+ New task` footer stays.

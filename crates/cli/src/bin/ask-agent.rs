@@ -98,6 +98,22 @@ fn signal_body(state: &str, arg: Option<&str>, stdin: impl FnOnce() -> String) -
         let thread = arg.and_then(holt_core::resume::notify_thread_id);
         return thread.map_or_else(|| json!({ "state": state }), |t| json!({ "state": state, "session": t }));
     }
+    if state == "tool" {
+        let raw = match arg.map(str::trim).filter(|a| !a.is_empty()) {
+            Some(a) => a.to_owned(),
+            None => stdin(),
+        };
+        let phase = serde_json::from_str::<Value>(&raw)
+            .ok()
+            .and_then(|v| {
+                let name = v.get("tool_name").or_else(|| v.get("tool")).and_then(Value::as_str)?;
+                let input = v.get("tool_input").or_else(|| v.get("input")).unwrap_or(&Value::Null);
+                holt_core::Phase::from_tool(name, input)
+            })
+            .map(holt_core::Phase::as_code)
+            .unwrap_or("");
+        return json!({ "state": state, "phase": phase });
+    }
     if state != "session" {
         return json!({ "state": state });
     }
@@ -1226,6 +1242,17 @@ mod tests {
         assert_eq!(signal_body("session", Some(r#"{"session_id":"x1"}"#), no_stdin)["session"], "x1");
         // Nothing usable: an empty id (the bridge refuses it).
         assert_eq!(signal_body("session", None, || "not json".to_owned())["session"], "");
+
+        // Claude's PostToolUse hook: `tool_name` and `tool_input` on stdin map to the phase code.
+        let post_edit =
+            || r#"{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"a.rs"}}"#.to_owned();
+        assert_eq!(signal_body("tool", None, post_edit), json!({"state": "tool", "phase": "editing"}));
+        let post_test = || {
+            r#"{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"cargo test --workspace"}}"#
+                .to_owned()
+        };
+        assert_eq!(signal_body("tool", None, post_test), json!({"state": "tool", "phase": "testing"}));
+        assert_eq!(signal_body("tool", None, || r#"{"tool_name":"TodoWrite"}"#.to_owned()), json!({"state": "tool", "phase": ""}));
     }
 
     #[test]

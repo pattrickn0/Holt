@@ -58,6 +58,7 @@ use crossbeam_channel::{Receiver, Sender};
 use parking_lot::{Mutex, RwLock};
 
 pub use agents::{AgentInfo, SpawnSpec};
+pub use chat::{idle_label, phase_for_command, Phase};
 pub use config::{Config, DictationChoice, Organization, ProjectCfg};
 pub use env::{env_var, env_var_os};
 pub use events::{CoreEvent, Delivery, DownloadProgress, DownloadState, FeedEntry, FeedKind, Tone};

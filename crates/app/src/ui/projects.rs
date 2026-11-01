@@ -27,14 +27,20 @@ const MARK_BOX: f32 = 16.0;
 const AGENT_X: f32 = 30.0;
 /// Indent of each level of the agent tree.
 const INDENT: f32 = 12.0;
-/// Space between the logo and the name, and between the name and the model.
+/// Space between the logo and the name, and between the name and the right-hand status/model.
 const GAP: f32 = 7.0;
-/// Maximum width of the model to the right of the name (the rest belongs to the name).
-const MODEL_MAX_W: f32 = 64.0;
-/// Minimum room for the name before the model shows up beside it.
-const NAME_MIN_W: f32 = 56.0;
+/// Minimum room on the right of the name before the phase/idle/model text shows up beside it.
+const META_MIN_W: f32 = 24.0;
 /// Levels beyond this one stop indenting (the bar is narrow).
 const MAX_DEPTH: usize = 5;
+
+/// Remaining width on the right of the row for the phase/idle/model text after the agent name (`name_w`)
+/// is placed in `avail_w`. The right-hand text is cut (or dropped when less than [`META_MIN_W`] remains)
+/// before the name is ever cut.
+fn right_meta_budget(avail_w: f32, name_w: f32) -> Option<f32> {
+    let rem = avail_w - name_w.min(avail_w) - GAP;
+    (rem >= META_MIN_W).then_some(rem)
+}
 
 /// Where the "+ New agent" row was painted in the last frame (anchor of the agent menu; `None` if not visible).
 fn anchor_key() -> Id {
@@ -481,26 +487,10 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     let logo_x = agent_x(tab_r, node.depth);
                     paint_agent_mark(deck, &ctx, &p, Pos2::new(logo_x, tab_r.center().y), ag, is_active_tab);
 
-                    // The model on the right, on a single line; the name is what shrinks (with an ellipsis).
+                    // The name comes first; the phase/idle/model on the right is cut with an ellipsis before the name is cut.
                     let right = sel_r.max.x - 8.0;
                     let name_x = logo_x + MARK_BOX / 2.0 + GAP;
-                    // In the narrow bar the name matters more than the model: with no room for both, the model is dropped.
-                    let model = ag.model.as_deref().map(model_tag).filter(|m| !m.is_empty() && right - name_x >= NAME_MIN_W + MODEL_MAX_W);
-                    let mcolor = if is_active_tab { theme::pal().text } else { theme::pal().text_3 };
-                    let model_w = model.as_deref().map_or(0.0, |m| {
-                        let mg = galley_trunc(&p, m, theme::meta(10.0), mcolor, MODEL_MAX_W);
-                        let w = mg.size().x;
-                        place(
-                            &p,
-                            Rect::from_min_max(Pos2::new(right - w, tab_r.min.y), Pos2::new(right, tab_r.max.y)),
-                            Align2::LEFT_CENTER,
-                            mg,
-                            mcolor,
-                        );
-                        w
-                    });
-
-                    let name_right = if model_w > 0.0 { right - model_w - GAP } else { right };
+                    let avail_w = (right - name_x).max(1.0);
                     let tab_font = if is_active_tab { theme::ui_semibold(12.0) } else { theme::ui_medium(12.0) };
                     let tab_color = if !ag.alive {
                         theme::pal().text_3
@@ -509,10 +499,10 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                     } else {
                         theme::pal().text
                     };
-                    let tab_g = galley_trunc(&p, &ag.label, tab_font, tab_color, (name_right - name_x).max(1.0));
+                    let tab_g = galley_trunc(&p, &ag.label, tab_font, tab_color, avail_w);
                     let placed_r = place(
                         &p,
-                        Rect::from_min_max(Pos2::new(name_x, tab_r.min.y), Pos2::new(name_right, tab_r.max.y)),
+                        Rect::from_min_max(Pos2::new(name_x, tab_r.min.y), Pos2::new(right, tab_r.max.y)),
                         Align2::LEFT_CENTER,
                         tab_g,
                         tab_color,
@@ -521,14 +511,36 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, dragging:
                         p.hline(placed_r.min.x..=placed_r.max.x, placed_r.center().y + 0.5, Stroke::new(1.0, tab_color));
                     }
 
+                    if !ag.busy && ag.status.is_some() {
+                        ctx.request_repaint_after(std::time::Duration::from_secs(60));
+                    }
+                    let right_text = ag.status.clone().or_else(|| ag.model.as_deref().map(model_tag)).filter(|s| !s.is_empty());
+                    if let (Some(text), Some(meta_avail)) = (right_text, right_meta_budget(avail_w, placed_r.width())) {
+                        let mcolor = theme::pal().text_3;
+                        let mg = galley_trunc(&p, &text, theme::meta(10.0), mcolor, meta_avail);
+                        let w = mg.size().x;
+                        place(
+                            &p,
+                            Rect::from_min_max(Pos2::new(right - w, tab_r.min.y), Pos2::new(right, tab_r.max.y)),
+                            Align2::LEFT_CENTER,
+                            mg,
+                            mcolor,
+                        );
+                    }
+
                     let mut tooltip = if ag.busy {
-                        t!("{name} (working…)", name = ag.label)
+                        match &ag.status {
+                            Some(phase) => format!("{} ({phase})", ag.label),
+                            None => t!("{name} (working…)", name = ag.label),
+                        }
                     } else if ag.done {
                         t!("{name} (done)", name = ag.label)
                     } else if ag.tab.is_none() {
                         t!("{name} (opens when you select the project)", name = ag.label)
                     } else if !ag.alive {
                         t!("{name} (ended)", name = ag.label)
+                    } else if let Some(idle) = &ag.status {
+                        format!("{} ({idle})", ag.label)
                     } else {
                         ag.label.clone()
                     };
@@ -851,12 +863,22 @@ mod tests {
             kind: "claude".into(),
             label: id.into(),
             model: None,
+            status: None,
             color: Color32::WHITE,
             busy: false,
             done: false,
             alive: true,
             tab: None,
         }
+    }
+
+    #[test]
+    fn the_right_meta_yields_to_the_agent_name() {
+        assert_eq!(right_meta_budget(160.0, 50.0), Some(160.0 - 50.0 - GAP));
+        assert_eq!(right_meta_budget(160.0, 125.0), Some(160.0 - 125.0 - GAP));
+        // When the name needs almost the whole row, the right-hand text is dropped instead of cutting the name.
+        assert_eq!(right_meta_budget(160.0, 140.0), None);
+        assert_eq!(right_meta_budget(160.0, 180.0), None);
     }
 
     /// (index, depth) of each row.

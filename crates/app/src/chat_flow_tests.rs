@@ -17,6 +17,7 @@ const FAKE_CLAUDE: &str = r#"#!/bin/sh
 while IFS= read -r line; do
   case "$line" in
     *need-permission*)
+      echo '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/x"}}]}}'
       echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/x"},"tool_use_id":"t1","permission_suggestions":[]}}'
       IFS= read -r answer
       printf '%s\n' "$answer" > answer.txt
@@ -77,15 +78,27 @@ fn a_question_from_another_agent_becomes_a_message_of_the_conversation_and_ends_
 #[test]
 fn a_permission_request_waits_for_the_user_and_the_answer_reaches_the_cli() {
     let mut env = env_with_chat_agent();
+    assert_eq!(env.deck.tabs[0].phase, None);
+    assert_eq!(env.deck.tabs[0].idle_since, None);
     env.deck.tabs[0].chat.as_mut().expect("chat").composer = "need-permission please".into();
     env.deck.chat_submit(0);
     assert!(env.deck.tabs[0].busy, "sending a message starts a turn");
     env.pump("the permission card", |d| d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.waiting_for_permission()));
     assert!(env.deck.tabs[0].chat.as_ref().expect("chat").transcript.busy(), "the turn waits for the answer");
+    assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::WaitingForYou));
+    assert_eq!(env.deck.tabs[0].status_label(std::time::Instant::now()).as_deref(), Some("waiting for you"));
     assert!(env.deck.tabs[0].done || env.deck.active == Some(0));
 
     env.deck.chat_answer(0, "r1", true, false);
+    assert_eq!(
+        env.deck.tabs[0].phase,
+        Some(holt_core::Phase::Editing),
+        "answering the permission moves the phase to the running Write tool"
+    );
     env.pump("the end of the turn", |d| !d.tabs[0].busy);
+    assert_eq!(env.deck.tabs[0].phase, None, "phase clears when the turn ends");
+    assert!(env.deck.tabs[0].idle_since.is_some(), "idle_since is recorded when the turn ends");
+    assert_eq!(env.deck.tabs[0].status_label(std::time::Instant::now()).as_deref(), Some("idle <1 min"));
     let answer: Value = serde_json::from_str(&std::fs::read_to_string(env.ws.join("answer.txt")).expect("answer")).expect("json");
     assert_eq!(answer["response"]["response"]["behavior"], "allow");
     assert_eq!(answer["response"]["request_id"], "r1");

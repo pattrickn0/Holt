@@ -1298,6 +1298,18 @@ impl Deck {
         self.tabs.iter().any(|t| t.project == self.active_project && t.ident.id() == task.instance)
     }
 
+    /// Phase or idle time of the task's agent tab, when the tab is open in the active project.
+    pub fn task_tab_status(&self, task: &Task, now: std::time::Instant) -> Option<String> {
+        if self.tasks.debug_hold {
+            return match task.id.as_str() {
+                "t6" => Some(holt_core::Phase::Writing.label().to_owned()),
+                "t10" => Some(holt_core::Phase::Editing.label().to_owned()),
+                _ => None,
+            };
+        }
+        self.tabs.iter().find(|t| t.project == self.active_project && t.ident.id() == task.instance).and_then(|t| t.status_label(now))
+    }
+
     pub fn on_tasks(&mut self, generation: u64, reply: TaskReply) {
         if generation != self.tasks.generation || self.tasks.debug_hold {
             return; // requested in the previous project (or a fake screenshot state)

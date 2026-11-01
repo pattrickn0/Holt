@@ -815,6 +815,25 @@ fn task_row(deck: &mut Deck, ui: &mut Ui, task: &Task, next_up: bool, now: u64, 
         )
         .max
         .x;
+        if tasks_ui::Lane::of(task.status) == tasks_ui::Lane::Working {
+            if let Some(status) = deck.task_tab_status(task, std::time::Instant::now()) {
+                ui.ctx().request_repaint_after(std::time::Duration::from_secs(60));
+                let id_w = galley(&painter, &task.id, theme::meta(10.5), p.text_3).size().x + 6.0;
+                let avail = (diff_left - id_w - x - 6.0).max(0.0);
+                if avail >= 24.0 {
+                    let sg = galley_trunc(&painter, &status, theme::meta(10.0), p.text_3, avail);
+                    x = place(
+                        &painter,
+                        Rect::from_min_max(Pos2::new(x + 6.0, line.min.y), Pos2::new(diff_left, line.max.y)),
+                        Align2::LEFT_CENTER,
+                        sg,
+                        p.text_3,
+                    )
+                    .max
+                    .x;
+                }
+            }
+        }
     }
     if diff_left - x > 24.0 {
         let g = galley(&painter, &task.id, theme::meta(10.5), p.text_3);
