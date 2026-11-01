@@ -485,7 +485,7 @@ impl Registry {
             format!("To talk to another agent, run this in the shell: ask-agent <agent> \"message\"{listed}. If you need another agent, open it in Holt (ask-agent <agent>, ask-agent <agent>@<role> or ask-agent --task new): do NOT use your CLI's internal subagents (Task/Agent tool, sub-agents) unless the user asks for it."),
             "The answer comes on stdout and can take minutes (timeout up to 600000 ms). If ask-agent warns that the answer will be typed later in this terminal, do not repeat the question; if it does not show up, run ask-agent --inbox (--all: the last 20).".to_owned(),
             "ask-agent --models [<agent>] lists the agents, this machine's models and the quota of each one (from the most free to the most spent): before delegating or opening tasks, look at everyone's quota and choose among the models capable of the size of the work, and among them the one with the most free quota, instead of always using the same one (the bridge refuses the exhausted ones). The history of each pair is kept (inside a task, the user reads it in the task's timeline): do not report or summarize the conversation; talk with the other agent until it is done, without stopping to ask the user.".to_owned(),
-            "Each tab is an instance <model>[@<role>[@<name>]] (claude, claude@dev, claude@dev@ana): ask-agent claude@dev \"task\" opens the tab if it does not exist; --new opens another one with the same role; --model <model> picks the LLM when opening. Large work becomes a task, with its own worktree, branch and agent: ask-agent --task new \"title\" --start --file <request.md>.".to_owned(),
+            "Each tab is an instance <model>[@<role>[@<name>]] (claude, claude@dev, claude@dev@ana): ask-agent claude@dev \"task\" opens the tab if it does not exist; --new opens another one with the same role; --model <model> picks the LLM when opening. Unless you are already the agent of a task (role tN, brief [Holt · Task tN: …]), any change to the project (bug fix, feature, validation fix, even a small tweak) must be done in a task, with its own worktree, branch, report, diff and review: ask-agent --task new \"title\" --start --file <request.md>; only questions, explanations, investigations and checks that change no files are answered in place.".to_owned(),
             "Text with accents goes in a file (--file <file>): through standard input the Windows shell turns accents into \"?\".".to_owned(),
             "When another agent sends you a message, answer with the command it shows (ask-agent --reply <number> \"answer\" or --file <file>): only then does the answer reach it.".to_owned(),
             "A long or multi-line message (or late answer) is not typed in full: you get a notice [mail #12 from claude@dev: \"…\"]. Read it with ask-agent --read 12 (it says how to answer); ask-agent --inbox lists unread mail.".to_owned(),
@@ -905,17 +905,22 @@ mod tests {
         Registry::new(Discovery { search_path: Some(OsString::new()), home: PathBuf::from("/h"), system_dirs: false })
     }
 
-    /// The instructions do not grow beyond what is needed (they were 2580 characters before t38; t40 added `--outline`
-    /// and t64's English text went a little past the old limit; the mail line took it to 3000) and carry the subagent rule, the bridge and the general memory.
+    /// The instructions do not grow beyond what is needed (they were 2580 characters before t38; t40 added `--outline`,
+    /// t64's English text and the mail line took it to 3000, and t16 stated the task-for-every-change rule) and carry
+    /// the subagent rule, the task rule, the bridge and the general memory.
     #[test]
     fn the_instructions_carry_the_rules_and_stay_short() {
         let reg = registry();
         let text = reg.bridge_instructions(Some("claude@dev"));
-        assert!(text.chars().count() <= 3000, "{} characters", text.chars().count());
+        assert!(text.chars().count() <= 3300, "{} characters", text.chars().count());
         for needle in [
             "do NOT use your CLI's internal subagents (Task/Agent tool, sub-agents) unless the user asks for it",
             "ask-agent <agent>@<role> or ask-agent --task new",
             "choose among the models capable of the size of the work, and among them the one with the most free quota",
+            "Unless you are already the agent of a task (role tN, brief [Holt · Task tN: …])",
+            "any change to the project (bug fix, feature, validation fix, even a small tweak) must be done in a task",
+            "ask-agent --task new \"title\" --start --file <request.md>",
+            "only questions, explanations, investigations and checks that change no files are answered in place",
             "memory/learnings/",
             "title:",
             "summary:",
@@ -927,6 +932,7 @@ mod tests {
         ] {
             assert!(text.contains(needle), "missing {needle:?}");
         }
+        assert!(!text.contains("Large work becomes a task"), "{text}");
         assert!(text.contains("Your name here is \"claude@dev\"") && text.contains("(agents: )"), "{text}");
     }
 

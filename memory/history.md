@@ -6,6 +6,7 @@ current state in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Completed
 
+- [x] **Work on the project goes through a task** (2026-11-01, `t16`): the general instructions given to every CLI state that any change to the project (bug fix, feature, validation fix, even a small tweak) must be done in a task (`ask-agent --task new`) unless the agent is already running a task, while only questions, explanations, investigations, and checks that change no files are answered in place.
 - [x] **Release v0.3.0** (2026-11-01): first packaged release, built by `.github/workflows/release.yml` on a `v*` tag (Windows zip, Linux tar.gz from Ubuntu 22.04, SHA-256 each); the Linux package was validated by a friend of the user on Big Linux.
 - [x] **Background and system tray** (validated 2026-11-01, `t44`, `t48`): the X hides the window to the tray, Open/Exit in the tray, a second launch brings the instance back; works on the user's openSUSE GNOME.
 - [x] **Chat view for agent tabs** (2026-10-29 to 2026-11-01, `t7`, `t9`, `t10`, `t11`): Claude, Antigravity and Codex tabs in a structured chat (markdown, tool cards, permission cards, model and effort pickers), switching to the terminal on the same conversation; Claude's plan usage read from the stream's `rate_limit_event`.
