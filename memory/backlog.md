@@ -10,40 +10,33 @@ test that fails becomes an item here. Product direction and decision-makers are 
 
 ## Now
 
-1. [ ] **Validation in use (user).** The terminal without blank lines after resizing (`t37`; if it returns,
+1. [ ] **Validation in use (user).** The Windows package of `v0.3.0` (delayed: the user is on openSUSE for now; a friend
+   validated the Linux package on Big Linux), the terminal without blank lines after resizing (`t37`; if it returns,
    "Record the terminal (diagnostics)" in the tab menu and send `data/pty/`), the document editor (`t39`), quota refusal
-   (`ask-agent --models antigravity`, `--team`), and choice by model capability (`t52`: task level,
-   "capability" block in `--models`; see manual-tests.md). When the metric has enough tasks, review the `capability.json` table and
-   default models per agent (`defaults`). Also from the user, after the rename to Holt (`t1`): rename the GitHub repository
-   to `pattrickn0/Holt` (update `origin`) and, optionally, the local folder to `~/Holt` (then rebuild so the menu entry
-   points at the new path); steps in [MAINTENANCE.md](MAINTENANCE.md), section 6.
-2. [ ] **Background and system tray** (decided on 2026-10-24). T1a (`t44`): `Deck::tick` was moved out of rendering and
-   `Deck::background` runs from the event loop with the window hidden or minimized. T1b (`t48`, done, needs validation in use):
-   the X hides the window to the tray, without asking (Windows: `tray-icon`; Linux: `ksni`; without `StatusNotifierWatcher` the X
-   quits); the tray has Open and Exit (Exit prompts if there is an unsaved edit or a tab mid-turn); opening the
-   program again brings the instance back (`POST /activate`, see ARCHITECTURE.md, "Single instance and
-   system tray"). Remaining to verify in use: the walkthrough is in manual-tests.md ("Tray and second instance"), especially a long turn
-   ending with the window hidden and the icon on Linux (vanilla GNOME tray lacks `StatusNotifierWatcher`; requires
-   AppIndicator extension), which was only compiled, not run.
-3. [ ] **Measured memory, then the graph** (T3, then T7). Automatic measurement over completed tasks: ground truth is
-   learnings from files the task actually changed; prediction is what each method would deliver reading only the brief (today;
-   today + one-line index of all; graph); score = hits and delivered size, with learnings as they were at the
-   task's base. The graph begins with co-changes from `git log` (no merges, no large commits, no `memory/**`), which
-   also suggests task scopes; only adopted for memory if it outperforms the index.
-4. [ ] **Task phase and "idle for N min"** (T5), solely through hooks: Claude's `PostToolUse` (the last tool used
-   becomes "editing", "testing"…); other CLIs display working/idle and for how long.
-5. [ ] **Durable mail** (T6). Messages up to ~200 characters on a single line continue being typed; long ones are saved to
-   disk and only a notice is sent to the terminal (`ask-agent --read <n>`); the notice is repeated at turn end if unread;
-   reply deadline counts from when read; pending messages survive app exit.
-6. [ ] **Worktree folder not removed upon validation: find root cause.** Logging already exists (2026-10-24, `file_lock.rs`): on
-   every `remove_task_worktree` failure, `holt.log` and the task warning report which files remained and which process holds
-   them open (Restart Manager), or if only empty directories remained (a process with its current directory inside it). Awaiting
-   the next real occurrence: read the notice (search for "worktree" in log) and fix the cause.
-7. [x] **Retire integrated Conversation** (t8, 2026-10-29). The Chat tab is gone: agent messages live in the task's
-   Timeline pane and system notices became notifications (toasts and the title bar's bell). Still open: messages between
-   agents outside any task are only in each pair's history (`ask-agent --inbox`), and the user's own messages to a tab
-   (`FeedKind::User`) are not recorded anywhere.
+   (`ask-agent --models antigravity`, `--team`), and choice by model capability (`t52`: task level, "capability" block in
+   `--models`; see manual-tests.md). When the metric has enough tasks, review the `capability.json` table and default
+   models per agent (`defaults`). Optionally rename the local folder to `~/Holt` (then rebuild so the menu entry points at
+   the new path); steps in [MAINTENANCE.md](MAINTENANCE.md), section 6.
+2. [ ] **Work on the project goes through a task** (user, 2026-11-01). An agent asked, inside a project, for a change to
+   it (a fix, a feature, a validation fix) does it in a task (`ask-agent --task new`), so it gets a branch, a report, a
+   diff and a review; only questions, explanations and small checks are answered in place. Applies to the orchestrator
+   too. The rule goes into the general instructions Holt gives every CLI.
+3. [ ] **Task phase and "idle for N min"** (T5). Claude terminal tabs: `PostToolUse` hook (the last tool used becomes
+   "editing", "testing"…); chat tabs: the tool calls of the event stream, no hook needed; other CLIs show working/idle and
+   for how long.
+4. [ ] **Measured memory, then the graph** (T3, then T7), after item 3. Automatic measurement over completed tasks: ground
+   truth is learnings from files the task actually changed; prediction is what each method would deliver reading only the
+   brief (today; today + one-line index of all; graph); score = hits and delivered size, with learnings as they were at the
+   task's base. The graph begins with co-changes from `git log` (no merges, no large commits, no `memory/**`), which also
+   suggests task scopes; only adopted for memory if it outperforms the index.
+5. [ ] **Linux release package in the app menu.** The `tar.gz` runs but adds no menu entry or icon (only a source build
+   does, `crates/app/build.rs`): Holt creates `~/.local/share/applications/holt.desktop` and the icon on first run from
+   the package, pointing at its own binary (or ship an AppImage).
+6. [ ] **Worktree folder not removed upon validation: monitor.** No new case seen (user, 2026-11-01). Logging exists
+   (`file_lock.rs`): on every `remove_task_worktree` failure, `holt.log` and the task warning report which files remained
+   and which process holds them open, or if only empty directories remained. On the next occurrence, read the notice
+   (search for "worktree" in the log) and fix the cause.
 
 ## Later (on the list, not yet)
 
-8. [ ] **Installer for Windows** (0.4).
+7. [ ] **Installer for Windows** (0.4).
