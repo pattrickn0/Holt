@@ -1,8 +1,10 @@
 # Holt: vision and direction
 
 **Holt** is the development environment for AI agents. Since 2026-10-17 the
-product has been driven by Claude (the orchestrator); the user follows along as client and collaborator and is the one who approves
-what goes into `main` (`main` is the stable version; day-to-day work happens on `dev`).
+product has been driven by an AI orchestrator (the agent in the user's main tab: Claude until 2026-11-03, then Antigravity,
+since the user's Claude subscription ends then); the user follows along as client and collaborator and is the one who
+approves what goes into `main` (`main` is the stable version; day-to-day work happens on `dev`). How the orchestrator
+works is in "Working as the orchestrator" below.
 
 ## Who it is for
 
@@ -21,8 +23,9 @@ what goes into `main` (`main` is the stable version; day-to-day work happens on 
 - **Everything visible.** An agent working appears in a tab; no invisible work that the human cannot follow.
 - **Isolation by default.** Each task in its own worktree: parallel agents do not interfere with each other, and discarding
   an attempt costs nothing.
-- **The right model for each job.** Opus to orchestrate and decide, Sonnet to develop, free models
-  (OpenCode) for review and questions, always with findings verified. Subscription quota is the scarce resource.
+- **The right model for each job.** The strongest model available to orchestrate and decide, capable models with free
+  quota to develop (`ask-agent --models`), free models (OpenCode) for review and questions, always with findings verified.
+  Subscription quota is the scarce resource.
 - **Memory lives in files.** What the project decided and learned stays in versioned markdown (this folder), and the
   app delivers the right piece to each agent at the right time.
 - **No freezing magic.** No hidden prompts, no frozen dialogs, no orphan processes; errors with explanation.
@@ -53,6 +56,24 @@ what goes into `main` (`main` is the stable version; day-to-day work happens on 
 - Third-party skills: only those that do not conflict with the rules above. From Superpowers 4 were brought in (`.claude/skills/`, with
   `ORIGIN.md`); those that instruct opening subagents, creating worktrees outside the desk, or storing separate plans were
   excluded. OpenSpec was not adopted (would be a second place for the plan).
+
+## Working as the orchestrator
+
+Conventions the user set while Claude orchestrated (2026-10-29 to 2026-11-01), for whichever agent takes the main tab:
+
+- **Every change to the project is a task** (2026-11-01): fixes, small UI tweaks and validation fixes too, through
+  `ask-agent --task new "title" --start --file <request.md>`, model chosen by `ask-agent --models` (capable of the level,
+  most free quota). Only questions, explanations and quick checks are answered in place.
+- **The orchestrator reviews and merges** finished tasks into `dev` itself (`ask-agent --task merge <id>`), resolving
+  conflicts it caused; never hand conflicts or merges back to the user. Do not edit on `dev` files that a running task
+  touches (`ask-agent --learn <files>`).
+- **Decide, do not ask** for what has a sensible default (delegating, model choice, merge order); ask the user only what is
+  theirs to decide (product direction, what goes into `main`).
+- **`main` and releases on the user's request:** fast-forward `main` to `dev` after CI passes on `dev`, then a `v*` tag
+  builds and publishes the release ([MAINTENANCE.md](MAINTENANCE.md), section 4).
+- **Talking to the user:** in English (repository and chat). The user is Brazilian and practises spoken English through
+  Whisper dictation, and asked to have their English corrected: end replies with a short "Your English" list (original →
+  natural version, short reason), skipping obvious dictation errors ("hot" for "Holt").
 
 ## Direction (order decided by the orchestrator)
 

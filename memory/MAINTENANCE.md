@@ -227,6 +227,13 @@ To invoke the bridge as a tab, obtain its token with `spawn_spec_for(&ident).env
 - **CI** (Continuous Integration) is GitHub's workflow (`.github/workflows/ci.yml`). On each push it compiles and tests on Windows, Ubuntu, and Fedora (Fedora in container, build and tests only), marking the commit/PR with ✅ or ❌. If ❌, open the run log to view the error. What has been verified on Linux is in [LINUX.md](LINUX.md).
 - To debug visually without opening the window: `HOLT_SMOKE=<folder>` saves a `screen.png` capture and exits the app (without downloading Whisper, to avoid initiating 1.6 GB in every temp folder). There are also `HOLT_DEBUG_FAKE_SHELL=1`, `HOLT_DEBUG_PTY=1` (records raw PTY output of each tab in `data/pty/`, see `terminal/record.rs`; tab right-click menu toggles same recording without env var), and `HOLT_DEBUG_UI=…` (`notices`, `notices-open`, `tasks-demo`, `tasks-detail`, `tasks-conflict`, `tasks-stopped`, `tasks-changes`, `tasks-messages`, `tasks-validating`, `tasks-new`, `tasks-new-more`, `branch:<name>`, `newtab`, `newtab-models:<agent>`, `usage-demo`, `usage-panel`, `git`, `git-demo`, `git-diff`, `github-demo`, `split-drag`, `docs-demo`, `docs-demo-file`, `docs-demo-md`, `docs-demo-report`, `docs-demo-unreadable`, `docs-demo-many`, `docs-demo-badge`, `drop`, `drop-pane:<n>`, `drop-task`, `mic-recording`, `target`, `attach`, `text`, `download`…; list in `debug_ui::apply`, `crates/app/src/debug_ui.rs`). On Linux, run under `xvfb-run`.
 - Logs: run with `RUST_LOG=debug` to view detailed messages in console (in debug builds).
+- **Releasing** (`.github/workflows/release.yml`): raise `version` in the root `Cargo.toml` (and `cargo build` so
+  `Cargo.lock` follows), commit on `dev`, wait for CI, fast-forward `main` (`git push origin dev:main`), then
+  `git tag -a vX.Y.Z -m "Holt vX.Y.Z" && git push origin vX.Y.Z`. The workflow builds the Windows zip and the Linux tar.gz
+  (Ubuntu 22.04, older glibc) with their SHA-256 and creates the release with generated notes; replace them with a written
+  summary (`gh release edit vX.Y.Z --notes-file <file>`), since commits do not come through PRs. The Whisper Vulkan engine
+  has its own tag (`whisper-engines-v*`, `.github/workflows/whisper-engines.yml`) and its checksum is pinned in
+  `crates/core/src/whisper.rs`.
 
 ## 5. Known limitations
 
