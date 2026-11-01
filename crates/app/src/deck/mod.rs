@@ -297,9 +297,18 @@ pub struct TreeRow {
 pub struct TreeState {
     pub expanded: HashSet<String>,
     cache: HashMap<String, Vec<DirEntry>>,
+    all_files: Option<Vec<DirEntry>>,
     pub active_file: Option<String>,
     /// Pending single click (220 ms debounce to tell it apart from a double click).
     pending_click: Option<(String, Instant)>,
+    /// Whether the `FILES` filter input bar is open.
+    pub filter_open: bool,
+    /// Current filter text in the `FILES` section.
+    pub filter: String,
+    /// Requests keyboard focus on the filter input bar on the next frame.
+    pub focus_filter: bool,
+    /// Whether the `FILES` section filters to only files with a Git status letter.
+    pub changed_only: bool,
 }
 
 pub struct Deck {
@@ -322,6 +331,15 @@ pub struct Deck {
     pub sidebar_w: f32,
     pub sidebar_collapsed: bool,
     pub sidebar_dragging: Option<(f32, f32)>,
+    /// Fraction of the sidebar height below the `PROJECTS` header that caps `PROJECTS` (default 0.42).
+    pub sidebar_projects_ratio: f32,
+    pub sidebar_projects_dragging: bool,
+    /// Whether the `FILES` section is collapsed (pinned at the bottom of the sidebar).
+    pub files_collapsed: bool,
+    /// DEBUG ONLY (`HOLT_DEBUG_UI=sidebar-empty`): shows the empty folder state in `FILES`.
+    pub debug_files_empty: bool,
+    /// DEBUG ONLY (`HOLT_DEBUG_UI=sidebar-drag`): highlights the divider between `PROJECTS` and `FILES`.
+    pub debug_projects_splitter_hot: bool,
     /// Requested right bar width (the effective one depends on the window; see `ui::right_width`).
     pub right_w: f32,
     pub right_dragging: Option<(f32, f32)>,
@@ -546,6 +564,11 @@ impl Deck {
             },
             sidebar_collapsed: cfg.sidebar_collapsed,
             sidebar_dragging: None,
+            sidebar_projects_ratio: if cfg.sidebar_projects_ratio > 0.0 { cfg.sidebar_projects_ratio.clamp(0.05, 0.95) } else { 0.42 },
+            sidebar_projects_dragging: false,
+            files_collapsed: cfg.files_collapsed,
+            debug_files_empty: false,
+            debug_projects_splitter_hot: false,
             right_w: if cfg.right_panel_width > 0.0 && cfg.right_panel_width != theme::RIGHT_OLD_DEFAULT_W {
                 cfg.right_panel_width
             } else {
@@ -580,7 +603,13 @@ impl Deck {
             tasks: crate::tasks_ui::TasksUi::default(),
             docs: crate::docs::Docs::default(),
             center_seen: crate::docs::CenterView::Agents,
-            tree: TreeState { expanded: HashSet::from([String::new()]), ..Default::default() },
+            tree: TreeState {
+                expanded: HashSet::from([String::new()]),
+                filter_open: cfg.files_filter_open,
+                filter: cfg.files_filter.clone(),
+                changed_only: cfg.files_changed_only,
+                ..Default::default()
+            },
             notices: crate::notices::Notices::default(),
             download: None,
             debug_hold_download: false,

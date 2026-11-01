@@ -792,10 +792,17 @@ impl Deck {
     pub fn persist_layout_now(&mut self) {
         self.layout_persist_at = None;
         let (sw, sc, rw) = (self.sidebar_w, self.sidebar_collapsed, self.right_w);
+        let (proj_ratio, files_col, filter_open, filter, changed_only) =
+            (self.sidebar_projects_ratio, self.files_collapsed, self.tree.filter_open, self.tree.filter.clone(), self.tree.changed_only);
         let (org, highlight, ratios) = (self.organization, self.highlight_ratio, self.split_ratios.clone());
         self.core.update_config(|c| {
             c.sidebar_width = sw;
             c.sidebar_collapsed = sc;
+            c.sidebar_projects_ratio = proj_ratio;
+            c.files_collapsed = files_col;
+            c.files_filter_open = filter_open;
+            c.files_filter = filter;
+            c.files_changed_only = changed_only;
             c.right_panel_width = rw;
             c.set_organization(org);
             c.highlight_ratio = highlight;

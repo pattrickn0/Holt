@@ -2,10 +2,11 @@
 
 use crate::{deck::Deck, theme};
 
-/// DEBUG ONLY: fake projects in the sidebar (`HOLT_DEBUG_UI=projects-demo`): one active with three agents (one busy), another with one, another empty.
+/// DEBUG ONLY: fake projects in the sidebar (`HOLT_DEBUG_UI=projects-demo`): one active expanded with working/done/idle agents,
+/// one inactive collapsed with working + done summary glyphs, and one inactive without folder/agents (greyed chevron).
 fn debug_projects() -> Vec<crate::deck::ProjectView> {
     use crate::deck::{AgentBadge, ProjectView};
-    let agent = |id: &str, parent: Option<&str>, kind: &str, label: &str, color, busy| AgentBadge {
+    let agent = |id: &str, parent: Option<&str>, kind: &str, label: &str, color, busy, done| AgentBadge {
         id: id.into(),
         parent: parent.map(Into::into),
         kind: kind.into(),
@@ -19,38 +20,50 @@ fn debug_projects() -> Vec<crate::deck::ProjectView> {
         status: match (id, busy) {
             ("claude", true) => Some(holt_core::Phase::Editing.label().into()),
             ("claude@dev", false) => Some(holt_core::idle_label(std::time::Duration::from_secs(12 * 60))),
+            ("antigravity@sidebar", false) => Some(holt_core::idle_label(std::time::Duration::from_secs(12 * 60))),
             ("codex", false) => Some(holt_core::idle_label(std::time::Duration::from_secs(30))),
             _ => None,
         },
         color,
         busy,
-        done: false,
+        done,
         alive: true,
         tab: None,
     };
-    let project = |id: &str, name: &str, active, agents| ProjectView {
+    let project = |id: &str, name: &str, path: &str, active, agents| ProjectView {
         id: id.into(),
         name: name.into(),
-        path: format!(r"C:\Users\you\{name}").into(),
+        path: path.into(),
         active,
-        expanded: true,
+        expanded: active,
         agents,
     };
     vec![
         project(
             "p1",
             "holt-dev",
+            r"C:\Users\you\holt-dev",
             true,
             vec![
-                agent("claude", None, "claude", "Claude", theme::CLAUDE, true),
-                agent("claude@dev", Some("claude"), "claude", "Claude · Dev", theme::CLAUDE, false),
-                agent("codex", Some("claude@dev"), "codex", "Codex", theme::SHELL, false),
-                agent("antigravity@sidebar", Some("claude"), "antigravity", "Antigravity · Sidebar", theme::ANTIGRAVITY, false),
-                agent("claude@review", None, "claude", "Claude · Review", theme::CLAUDE, false),
+                agent("claude", None, "claude", "Claude", theme::CLAUDE, true, false),
+                agent("claude@dev", Some("claude"), "claude", "Claude · Dev", theme::CLAUDE, false, true),
+                agent("codex", Some("claude@dev"), "codex", "Codex", theme::SHELL, false, false),
+                agent("antigravity@sidebar", Some("claude"), "antigravity", "Antigravity · Sidebar", theme::ANTIGRAVITY, false, false),
+                agent("claude@review", None, "claude", "Claude · Review", theme::CLAUDE, false, false),
             ],
         ),
-        project("p2", "jwic", false, vec![agent("claude", None, "claude", "Claude", theme::CLAUDE, false)]),
-        project("p3", "new-site", false, vec![]),
+        project(
+            "p2",
+            "jwic",
+            r"C:\Users\you\jwic",
+            false,
+            vec![
+                agent("claude", None, "claude", "Claude", theme::CLAUDE, true, false),
+                agent("antigravity@ui", None, "antigravity", "Antigravity · UI", theme::ANTIGRAVITY, true, false),
+                agent("claude@api", None, "claude", "Claude · API", theme::CLAUDE, false, true),
+            ],
+        ),
+        project("p3", "new-site", "", false, vec![]),
     ]
 }
 
@@ -341,6 +354,16 @@ pub(crate) fn apply(deck: &mut Deck) {
                 deck.debug_pane_drop = Some(1);
             }
             "sidebar-collapsed" => deck.sidebar_collapsed = true,
+            "sidebar-files-collapsed" => deck.files_collapsed = true,
+            "sidebar-empty" => deck.debug_files_empty = true,
+            "sidebar-drag" => deck.debug_projects_splitter_hot = true,
+            "sidebar-filter" => {
+                deck.tree.filter_open = true;
+                deck.tree.filter = "side".into();
+            }
+            "sidebar-changed" => {
+                deck.tree.changed_only = true;
+            }
             "attach" => debug_tasks(deck, "tasks-new-attach"),
             "empty" => deck.debug_close_all = true,
             "download" | "download-retry" | "download-error" => {
@@ -359,6 +382,8 @@ pub(crate) fn apply(deck: &mut Deck) {
             other => {
                 if let Some(id) = other.strip_prefix("project:") {
                     deck.debug_switch_project = Some(id.to_owned());
+                } else if let Some(w) = other.strip_prefix("sidebar-w:").and_then(|s| s.parse::<f32>().ok()) {
+                    deck.sidebar_w = w;
                 } else if let Some(branch) = other.strip_prefix("branch:") {
                     // The title bar's branch chip (and the Git tab) on a fake status: the README screenshot shows `dev`.
                     deck.git.debug_hold = true;

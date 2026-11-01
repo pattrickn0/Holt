@@ -752,6 +752,9 @@ impl Core {
         self.update_config(|c| {
             c.active_project = id.to_owned();
             c.workspace = path;
+            if let Some(p) = c.project_list.iter_mut().find(|p| p.id == id) {
+                p.collapsed = false;
+            }
         });
         self.prepare_workspace();
         Ok(())

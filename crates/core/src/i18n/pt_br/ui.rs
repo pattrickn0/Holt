@@ -5,7 +5,6 @@
 
 pub const ENTRIES: &[(&str, &str)] = &[
     // Sidebar
-    ("ORGANIZATION", "ORGANIZAÇÃO"),
     ("Tabs", "Abas"),
     ("Split", "Dividida"),
     ("Highlight", "Destaque"),
@@ -13,6 +12,16 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("Refresh explorer", "Atualizar explorador"),
     ("Collapse all folders", "Recolher todas as pastas"),
     ("Drag to resize the sidebar", "Arraste para redimensionar barra lateral"),
+    ("Drag to resize", "Arraste para redimensionar"),
+    ("Filter files", "Filtrar arquivos"),
+    ("Changed files only", "Apenas arquivos alterados"),
+    ("Expand files", "Expandir arquivos"),
+    ("Collapse files", "Recolher arquivos"),
+    ("Filter files…", "Filtrar arquivos…"),
+    ("Close filter (Esc)", "Fechar filtro (Esc)"),
+    ("No changed files", "Nenhum arquivo alterado"),
+    ("No matching files", "Nenhum arquivo correspondente"),
+    ("This project has no folder", "Este projeto não tem pasta"),
     // Tabs
     ("Opening…", "Abrindo…"),
     ("Transcribing…", "Transcrevendo…"),
@@ -60,7 +69,7 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("Clear", "Limpar"),
     // Projects
     ("PROJECTS", "PROJETOS"),
-    ("New project…", "Novo projeto…"),
+    ("New project", "Novo projeto"),
     ("Collapse the agents of every project", "Recolher os agentes de todos os projetos"),
     ("Show the agents of every project", "Mostrar os agentes de todos os projetos"),
     ("Collapse agents", "Recolher agentes"),
@@ -72,6 +81,7 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("Reports to {agent}", "Responde a {agent}"),
     ("Drag onto another agent to put it on their team", "Arraste sobre outro agente para pô-lo na equipe dele"),
     ("+ New agent", "+ Novo agente"),
+    ("New agent", "Novo agente"),
     ("Choose an agent to open in this project", "Escolher um agente para abrir neste projeto"),
     ("{name} → {boss}'s team", "{name} → equipe de {boss}"),
     ("{name}: cannot go under their own team", "{name}: não pode ficar sob a própria equipe"),

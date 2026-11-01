@@ -25,11 +25,15 @@ for egui). Where it disagrees with these rules, these win.
    color (several agents share the same project).
 
 Decisions the user already made (do not reopen unless they ask):
-- "+ New agent" lives **inside** the active project, at the end of its agent list; the "+" of the PROJECTS header
-  creates a project. No loose "+" in the title bar.
-- The ORGANIZATION section stays a **section** (today `Tabs | Split | Highlight`), not an icon in the footer. The window
-  of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at 62% (`theme::PANE_*`).
-  Footer with shortcuts: not for now.
+- "+ New agent" lives **inside** the active project, at the end of its agent list (a drawn 12 px `+` at `x = 30`, aligned
+  with the agent logos, followed by `"New agent"`); the "+" of the PROJECTS header creates a project (tooltip `"New project"`).
+  No loose "+" in the title bar.
+- Window organization (`Tabs | Split | Highlight`) lives in the **title bar**, right side, left of the subscription usage
+  meter: a 3-segment icon switch (`70×22` `recess` track, corners 6, segments corners 4, active segment in `selected` with
+  `text_strong` icon, not accent — a setting, not a state). Below `860 px` window width (or when `< 70 px` horizontal room
+  remains left of the usage meter) it compacts to a single `26×24` cycle button (`org_switch_mode`), and hides when `< 26 px`
+  remains. The window of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at 62%
+  (`theme::PANE_*`). Footer with shortcuts: not for now.
 
 ## Text and language
 
@@ -93,18 +97,31 @@ to the system font.
 
 - Sidebar, top to bottom: the Agents | Documents switch (`docs::switch`, 28 px track with 24 px segments, 6 px margin,
   active segment in the accent color; "Docs" if the segment cannot fit "Documents n"; with the sidebar collapsed it moves
-  to the title bar, compact, 24 px), `separator`, PROJECTS, ORGANIZATION (`segmented` without accent, 24 px track, 10 px
-  margin), FILES. Separators as wide as the island.
-- Sidebar rows have a 4 px margin (the selection does not touch the edge): project 22 px (▾/▸, name in 600, count in
-  `text_3`, 6 px ring of the agent that finished unseen), **agent 24 px** (`AGENT_ROW_H`), "+ New agent" 22 px in
-  `text_3`, file 20 px (11.5 px; `FILE_ROW_H`).
-- Agent tree: model icon (12 px in a 16 px box) centered at x 30 of the row, 12 px indent per level (up to 5), name in
-  Inter 12 px/500 (600 if selected) 7 px after the box, **phase while working or idle time when idle on the right**
-  (falling back to the model shortened by `projects::model_tag` when neither is known) in `meta(10)`, `text_3`: the
-  right-hand text is cut with an ellipsis before the name is cut, nothing wraps. Selected:
-  `accent_soft` + 2 px stripe in the accent color, name `text_strong`.
-- Explorer: 12 px indent, extension icons in `text_3` (gray, less color), Git letter (M, A, ?, D, R, U) in `meta(10)`
-  `text_2`; selected `selected_soft`, hover `hover`.
+  to the title bar, compact, 24 px), `separator`, PROJECTS (24 px header, scrollable project/agent tree), a **draggable
+  6 px divider** (`paint_splitter` on hover/drag, saved as `sidebarProjectsRatio`, minimum 3 agent rows above and FILES
+  header + 3 file rows below; when the tree is shorter than the cap, FILES rises right under it with no empty band), and
+  FILES (24 px header; clicking collapses/expands, and when collapsed the header stays pinned at the bottom of the
+  sidebar). Separators as wide as the island.
+- Sidebar rows have a 4 px margin (the selection does not touch the edge): project 22 px (▾/▸ always present and greyed
+  in `text_faint` when the project has no folder/agents; name in 600; no agent count; when collapsed, a state summary on
+  the right as **glyphs + numbers** in `meta(10)` `text_3`: pulsing dot in the agent's colour + count working, unseen ring
+  + count finished, nothing when all idle; inactive projects start collapsed, expanded/collapsed persists per project, and
+  clicking an inactive project's name activates and expands it), **agent 24 px** (`AGENT_ROW_H`), "+ New agent" 22 px
+  (drawn 12 px `+` centered at `x = 30` + `"New agent"`, `text_3`, `text` on hover), file 20 px (11.5 px; `FILE_ROW_H`).
+- Agent tree: model icon (12 px in a 16 px box) centered at x 30 of the row, 12 px indent per level (up to 5), name
+  **without the CLI prefix** (`"Dev"`, `"Review"`; a plain instance shows the CLI name, e.g. `"Claude"`) in Inter
+  12 px/500 (600 if selected) 7 px after the box, and a **state tail** on the right in `meta(10)`: working = phase
+  (`"editing"`, `"testing"`) in `text_2`; finished unseen = `"done"` / `"feito"` in accent; idle = compact idle time
+  (`"12m"` / `"12min"`) in `text_3`; hovering the row shows the shortened model tag (`projects::model_tag`) in `text_3`
+  (the full model is in the tooltip). The right-hand tail is cut with an ellipsis before the name is cut, nothing wraps.
+  Selected: `accent_soft` + 2 px stripe in the accent color, name `text_strong`.
+- Explorer (`FILES`): 24 px header with `"FILES"`, `"<project> · <branch>"` in `meta(10)` `text_3` with ellipsis (hidden
+  when `< 24 px` room remains), and four 20×20 icon buttons: filter, **changed only** (files with a git letter),
+  collapse-all, refresh (dropping collapse-all then refresh at narrow widths). Filter opens a 24 px `recess` field
+  (corners 6, `Esc` or `×` closes) and flattens matching files to single-line rows (`name` + `parent_dir` in `meta(10)`
+  `text_3` + git letter). Normal tree: 12 px indent, extension icons in `text_3`, Git letter (M, A, ?, D, R, U) in
+  `meta(10)` `text_2`; selected `selected_soft`, hover `hover`. Empty state when a project has no folder:
+  `"This project has no folder"` + Ghost `"Open folder…"`.
 - Tabs (`ui/tabs.rs`): 30 px strip (`HEAD_H`), 22 px pills, corners 5, 3 px between them, padding 8; active in the
   agent's color, text `on_accent` 600 and a light shadow; without window or document focus, the active one is `selected`
   + `text_strong`; 7 px dot (halo working, 1.5 px ring finished unseen, 40% with no process); the ✕ is drawn (Inter does

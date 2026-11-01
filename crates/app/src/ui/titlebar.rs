@@ -1,14 +1,16 @@
 //! The app's own title bar (the window has no system decoration and the bar has no background): ☰ menu,
 //! sidebar button, logo, the Agents | Documents switch (only with the sidebar collapsed),
-//! project and branch, subscription usage, the notifications bell and minimize/maximize/close.
+//! project and branch, the window organization switch (Tabs / Split / Highlight), subscription usage,
+//! the notifications bell and minimize/maximize/close.
 
-use egui::{Align2, CursorIcon, Id, Order, PointerButton, Pos2, Rect, ResizeDirection, Sense, Stroke, Ui, Vec2, ViewportCommand};
+use egui::{Align2, Color32, CursorIcon, Id, Order, PointerButton, Pos2, Rect, ResizeDirection, Sense, Stroke, Ui, Vec2, ViewportCommand};
 
 use super::{chip, clickable, galley, galley_spaced, place, tip};
 use crate::deck::Deck;
 use crate::icons::Icon;
 use crate::theme;
 use holt_core::t;
+use holt_core::Organization;
 
 pub struct Anchors {
     pub settings_anchor: Rect,
@@ -24,10 +26,47 @@ const WIN_BTN_W: f32 = 40.0;
 const WIN_GLYPH: f32 = 9.0;
 /// Thickness of the resize strips on the window edges.
 const RESIZE_EDGE: f32 = 5.0;
-/// Icon buttons on the left (menu, sidebar).
+/// Icon buttons on the left (menu, sidebar) and compact organization button.
 const ICON_BTN: Vec2 = Vec2::new(26.0, 24.0);
 /// Space between the items on the left.
 const GAP: f32 = 8.0;
+/// Full 3-segment organization switch size (`recess` track, corners 6, segments corners 4).
+pub const ORG_SWITCH_W: f32 = 70.0;
+pub const ORG_SWITCH_H: f32 = 22.0;
+/// Below this window width the 3-segment organization switch compacts to a single 26×24 cycle button.
+pub const ORG_FULL_MIN_WIN_W: f32 = 860.0;
+
+/// How the window organization switch renders in the title bar given the available horizontal room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrgSwitchMode {
+    /// Full 70×22 3-segment `recess` switch (`Tabs` / `Split` / `Highlight`).
+    Full,
+    /// Single 26×24 icon button showing the current organization and cycling on click.
+    Compact,
+    /// Hidden when `< 26 px` remains between the left title bar items and the usage meter / bell.
+    Hidden,
+}
+
+/// Decides whether the title bar organization switch renders in full (`70×22`), compacts to a single
+/// `26×24` cycle button (`win_w < 860` or `avail_w < 70`), or hides (`avail_w < 26`).
+pub fn org_switch_mode(win_w: f32, avail_w: f32) -> OrgSwitchMode {
+    if avail_w < ICON_BTN.x {
+        OrgSwitchMode::Hidden
+    } else if win_w < ORG_FULL_MIN_WIN_W || avail_w < ORG_SWITCH_W {
+        OrgSwitchMode::Compact
+    } else {
+        OrgSwitchMode::Full
+    }
+}
+
+/// Next window organization when cycling the compact title bar button (`Tabs -> Split -> Highlight -> Tabs`).
+pub fn next_organization(org: Organization) -> Organization {
+    match org {
+        Organization::Tabs => Organization::Split,
+        Organization::Split => Organization::Highlight,
+        Organization::Highlight => Organization::Tabs,
+    }
+}
 
 /// The branch to show on the chip: its name, or the start of the commit with a detached HEAD.
 fn branch_label(deck: &Deck) -> Option<String> {
@@ -134,10 +173,14 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) -> Anchors {
     super::notices::bell(deck, ui, &painter, bell);
 
     // ---------- Subscription usage (left of the bell) ----------
-    let usage = Rect::from_min_max(Pos2::new(x + 12.0, rect.min.y), Pos2::new(bell.min.x - 6.0, rect.max.y));
-    if usage.width() > 0.0 {
-        super::usage::draw(deck, ui, usage);
-    }
+    let usage_right = bell.min.x - 6.0;
+    let usage = Rect::from_min_max(Pos2::new(x + 12.0, rect.min.y), Pos2::new(usage_right, rect.max.y));
+    let usage_left = if usage.width() > 0.0 { super::usage::draw(deck, ui, usage) } else { usage_right };
+
+    // ---------- Window organization switch (left of the usage meter) ----------
+    let org_right = if usage_left < usage_right { usage_left - GAP } else { usage_right };
+    let avail_w = org_right - (x + GAP);
+    draw_organization_switch(deck, ui, &painter, rect.width(), avail_w, org_right, cy);
 
     if !maximized {
         resize_edges(&ctx);
@@ -147,6 +190,82 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) -> Anchors {
         settings_anchor: menu,
         fallback_anchor: Rect::from_min_size(Pos2::new(toggle.max.x, rect.max.y), Vec2::new(34.0, 0.0)),
         notices_anchor: bell,
+    }
+}
+
+/// Draws the window organization control (`Tabs` / `Split` / `Highlight`) left of the usage meter:
+/// full 3-segment `70×22` `recess` switch (active segment in `selected`, not accent) when room permits,
+/// compact `26×24` single-icon cycle button at narrower widths, or hidden when `< 26 px` remains.
+fn draw_organization_switch(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, win_w: f32, avail_w: f32, org_right: f32, cy: f32) {
+    let p = theme::pal();
+    let label_for = |org: Organization| match org {
+        Organization::Tabs => t!("Tabs"),
+        Organization::Split => t!("Split"),
+        Organization::Highlight => t!("Highlight"),
+    };
+    match org_switch_mode(win_w, avail_w) {
+        OrgSwitchMode::Full => {
+            let track =
+                Rect::from_min_size(Pos2::new(org_right - ORG_SWITCH_W, cy - ORG_SWITCH_H / 2.0), Vec2::new(ORG_SWITCH_W, ORG_SWITCH_H));
+            painter.rect_filled(track, 6.0, p.recess);
+            let inner = track.shrink(2.0);
+            let seg_w = inner.width() / 3.0;
+            for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {
+                let seg = Rect::from_min_size(Pos2::new(inner.min.x + seg_w * i as f32, inner.min.y), Vec2::new(seg_w, inner.height()));
+                let r = clickable(ui, seg, Id::new(("titlebar-org", i)));
+                let on = deck.organization == org;
+                if on {
+                    painter.rect_filled(seg, 4.0, p.selected);
+                } else if r.hovered() {
+                    painter.rect_filled(seg, 4.0, p.hover);
+                }
+                let fg = if on {
+                    p.text_strong
+                } else if r.hovered() {
+                    p.text
+                } else {
+                    p.text_2
+                };
+                paint_org_icon(painter, seg.center(), org, fg);
+                if tip(r, label_for(org)).clicked() {
+                    deck.set_organization(org);
+                }
+            }
+        }
+        OrgSwitchMode::Compact => {
+            let btn = Rect::from_min_size(Pos2::new(org_right - ICON_BTN.x, cy - ICON_BTN.y / 2.0), ICON_BTN);
+            let (r, hot) = icon_button(ui, painter, btn, "titlebar-org-compact", false);
+            let fg = if hot { p.text } else { p.text_2 };
+            paint_org_icon(painter, btn.center(), deck.organization, fg);
+            if tip(r, label_for(deck.organization)).clicked() {
+                deck.set_organization(next_organization(deck.organization));
+            }
+        }
+        OrgSwitchMode::Hidden => {}
+    }
+}
+
+/// 12×9 window-layout glyph for `Tabs` (tab bar on top), `Split` (two equal columns), or `Highlight` (big left + two small right).
+fn paint_org_icon(painter: &egui::Painter, center: Pos2, org: Organization, color: Color32) {
+    let frame = Rect::from_center_size(center, Vec2::new(12.0, 9.0));
+    let stroke = Stroke::new(1.3, color);
+    painter.rect_stroke(frame, 1.5, stroke, egui::StrokeKind::Inside);
+    match org {
+        Organization::Tabs => {
+            let y = frame.min.y + 3.0;
+            painter.line_segment([Pos2::new(frame.min.x + 1.0, y), Pos2::new(frame.max.x - 1.0, y)], stroke);
+            painter.line_segment([Pos2::new(frame.min.x + 4.5, frame.min.y + 1.0), Pos2::new(frame.min.x + 4.5, y)], stroke);
+        }
+        Organization::Split => {
+            let x = frame.center().x;
+            painter.line_segment([Pos2::new(x, frame.min.y + 1.0), Pos2::new(x, frame.max.y - 1.0)], stroke);
+        }
+        Organization::Highlight => {
+            let x = frame.min.x + 7.5;
+            let y = frame.center().y;
+            painter.line_segment([Pos2::new(x, frame.min.y + 1.0), Pos2::new(x, frame.max.y - 1.0)], stroke);
+            painter.line_segment([Pos2::new(x, y), Pos2::new(frame.max.x - 1.0, y)], stroke);
+        }
     }
 }
 
@@ -270,5 +389,28 @@ fn resize_edges(ctx: &egui::Context) {
                 ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn organization_switch_adapts_to_window_and_available_width() {
+        // Wide window with >= 70 px free shows the full 70×22 3-segment switch.
+        assert_eq!(org_switch_mode(1280.0, 200.0), OrgSwitchMode::Full);
+        assert_eq!(org_switch_mode(860.0, 70.0), OrgSwitchMode::Full);
+        // Narrow window (< 860 px) or < 70 px free compacts to a single 26×24 cycle button.
+        assert_eq!(org_switch_mode(760.0, 200.0), OrgSwitchMode::Compact);
+        assert_eq!(org_switch_mode(1280.0, 48.0), OrgSwitchMode::Compact);
+        assert_eq!(org_switch_mode(760.0, 26.0), OrgSwitchMode::Compact);
+        // When < 26 px remains, the switch hides so it never crowds the title bar.
+        assert_eq!(org_switch_mode(1280.0, 25.0), OrgSwitchMode::Hidden);
+        assert_eq!(org_switch_mode(760.0, 0.0), OrgSwitchMode::Hidden);
+
+        assert_eq!(next_organization(Organization::Tabs), Organization::Split);
+        assert_eq!(next_organization(Organization::Split), Organization::Highlight);
+        assert_eq!(next_organization(Organization::Highlight), Organization::Tabs);
     }
 }
