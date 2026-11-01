@@ -115,7 +115,9 @@ flowchart LR
 
 Aider, Goose, GitHub Copilot CLI, Amazon Q, Open Interpreter and a plain shell also open as tabs, with less integration.
 
-**2. Build Holt** (Rust 1.89+ from [rustup.rs](https://rustup.rs)).
+**2. Get Holt.** Download the package for your system from [Releases](https://github.com/pattrickn0/Holt/releases)
+(`windows-x64.zip` or `linux-x64.tar.gz`), unpack it anywhere you can write and run `holt`. Keep `holt` and `ask-agent`
+in the same folder. Or build it yourself (Rust 1.89+ from [rustup.rs](https://rustup.rs)):
 
 <details open>
 <summary><b>Linux</b></summary>
@@ -152,7 +154,7 @@ cargo build --workspace --release
 </details>
 
 The build produces two executables that must stay in the same folder: `holt` (the app) and `ask-agent` (the command
-agents use; Holt puts it on every tab's `PATH`). There is no installer yet: the app runs from where it was built.
+agents use; Holt puts it on every tab's `PATH`). There is no installer yet: the app runs from its folder.
 
 **3. Go.** Click **Open folder…** to add a project, open an agent under **+ New agent**, and talk to it. Ask it to
 bring in another agent — it knows how. For anything bigger, use **+ New task** on the board.
