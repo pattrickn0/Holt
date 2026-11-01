@@ -609,13 +609,33 @@ fn signal(core: &Core, auth: &Auth, msg: &Value) -> (u16, Value) {
     let Auth::Agent(Caller { id, project, tab: true }) = auth else {
         return (400, json!({ "error": "only a tab's process sends signals" }));
     };
-    let busy = match msg.get("state").and_then(Value::as_str) {
-        Some("busy") => true,
+    let (busy, phase) = match msg.get("state").and_then(Value::as_str) {
+        Some("busy") => (true, None),
         Some("idle") => {
             if let Some(session) = msg.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 core.set_tab_session(project, id, session);
             }
-            false
+            (false, None)
+        }
+        Some("tool") => {
+            let phase = match msg.get("phase").and_then(Value::as_str) {
+                Some("") => return (200, json!({ "ok": true })),
+                Some(code) => match crate::chat::Phase::from_code(code) {
+                    Some(p) => p,
+                    None => return (400, json!({ "error": "invalid phase" })),
+                },
+                None => {
+                    let Some(name) = msg.get("tool_name").or_else(|| msg.get("tool")).and_then(Value::as_str) else {
+                        return (400, json!({ "error": "missing phase or tool_name" }));
+                    };
+                    let input = msg.get("tool_input").or_else(|| msg.get("input")).unwrap_or(&Value::Null);
+                    let Some(p) = crate::chat::Phase::from_tool(name, input) else {
+                        return (200, json!({ "ok": true }));
+                    };
+                    p
+                }
+            };
+            (true, Some(phase))
         }
         Some("session") => {
             let session = msg.get("session").and_then(Value::as_str).unwrap_or("");
@@ -625,9 +645,9 @@ fn signal(core: &Core, auth: &Auth, msg: &Value) -> (u16, Value) {
                 (400, json!({ "error": "invalid session id, or this agent does not resume conversations" }))
             };
         }
-        _ => return (400, json!({ "error": "invalid state (use busy, idle or session)" })),
+        _ => return (400, json!({ "error": "invalid state (use busy, idle, tool or session)" })),
     };
-    core.emit(CoreEvent::AgentSignal { project: project.clone(), id: id.clone(), busy });
+    core.emit(CoreEvent::AgentSignal { project: project.clone(), id: id.clone(), busy, phase });
     if !busy {
         core.mail_turn_ended(project, id);
     }

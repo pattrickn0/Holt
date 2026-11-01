@@ -138,6 +138,10 @@ pub struct Tab {
     pub view: ViewState,
     pub alive: bool,
     pub busy: bool,
+    /// What the agent is doing right now in the running turn (chat view or `PostToolUse` hook).
+    pub phase: Option<holt_core::Phase>,
+    /// When the last turn of this tab ended (`None` while busy or before any turn finished).
+    pub idle_since: Option<Instant>,
     /// A turn finished while it was not active (cleared when the tab is focused).
     pub done: bool,
     /// When the tab was last activated (counter): each window of the split view
@@ -181,6 +185,18 @@ pub struct Tab {
 }
 
 impl Tab {
+    /// What this tab is doing: its phase while working, or how long it has been idle when idle.
+    pub fn status_label(&self, now: Instant) -> Option<String> {
+        if !self.alive {
+            return None;
+        }
+        if self.busy {
+            self.phase.map(|p| p.label().to_owned())
+        } else {
+            self.idle_since.map(|since| holt_core::idle_label(now.saturating_duration_since(since)))
+        }
+    }
+
     /// A PTY resize waits for the size to stop (see `Deck::fit_tab`).
     #[cfg(test)]
     pub(crate) fn resize_pending(&self) -> bool {
@@ -224,6 +240,8 @@ pub struct AgentBadge {
     pub label: String,
     /// Instance LLM model, when it has one.
     pub model: Option<String>,
+    /// Phase while working (`"editing"`) or idle time when idle (`"idle 12 min"`).
+    pub status: Option<String>,
     pub color: Color32,
     /// Working right now.
     pub busy: bool,

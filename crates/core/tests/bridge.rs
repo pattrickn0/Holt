@@ -798,6 +798,7 @@ fn requests_without_host_or_too_big_are_refused() {
 
 #[test]
 fn hooks_signal_turns_of_a_tab() {
+    use holt_core::Phase;
     let env = start(&[]);
     let port = env.core.bridge_port();
     let host = format!("127.0.0.1:{port}");
@@ -805,19 +806,42 @@ fn hooks_signal_turns_of_a_tab() {
     let _ = env.rx.try_iter().count();
     let (st, _) = http(port, "POST", "/signal", &host, &token, &json!({"state": "busy"}).to_string());
     assert_eq!(st, 200);
+    let (st, _) = http(port, "POST", "/signal", &host, &token, &json!({"state": "tool", "phase": "editing"}).to_string());
+    assert_eq!(st, 200);
+    let (st, _) = http(
+        port,
+        "POST",
+        "/signal",
+        &host,
+        &token,
+        &json!({"state": "tool", "tool_name": "Bash", "tool_input": {"command": "cargo test"}}).to_string(),
+    );
+    assert_eq!(st, 200);
+    // An unmapped tool on PostToolUse succeeds silently without emitting a phase event.
+    let (st, _) = http(port, "POST", "/signal", &host, &token, &json!({"state": "tool", "phase": ""}).to_string());
+    assert_eq!(st, 200);
     let (st, _) = http(port, "POST", "/signal", &host, &token, &json!({"state": "idle"}).to_string());
     assert_eq!(st, 200);
-    let signals: Vec<(String, bool)> = env
+    let signals: Vec<(String, bool, Option<Phase>)> = env
         .rx
         .try_iter()
         .filter_map(|e| match e {
-            CoreEvent::AgentSignal { id, busy, .. } => Some((id, busy)),
+            CoreEvent::AgentSignal { id, busy, phase, .. } => Some((id, busy, phase)),
             _ => None,
         })
         .collect();
-    assert_eq!(signals, [("shell@dev".to_owned(), true), ("shell@dev".to_owned(), false)]);
-    // Invalid state, or not a tab (master token): refused.
+    assert_eq!(
+        signals,
+        [
+            ("shell@dev".to_owned(), true, None),
+            ("shell@dev".to_owned(), true, Some(Phase::Editing)),
+            ("shell@dev".to_owned(), true, Some(Phase::Testing)),
+            ("shell@dev".to_owned(), false, None),
+        ]
+    );
+    // Invalid state, invalid phase, or not a tab (master token): refused.
     assert_eq!(http(port, "POST", "/signal", &host, &token, &json!({"state": "x"}).to_string()).0, 400);
+    assert_eq!(http(port, "POST", "/signal", &host, &token, &json!({"state": "tool", "phase": "bogus"}).to_string()).0, 400);
     assert_eq!(http(port, "POST", "/signal", &host, env.core.bridge_token(), &json!({"state": "idle"}).to_string()).0, 400);
     env.core.shutdown();
 }

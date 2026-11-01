@@ -802,9 +802,9 @@ fn reading_documents_keeps_the_terminals_running_unresized_and_marks_finished_tu
 
     // The agent finishes a turn while reading: it counts as unseen, even though it is the active tab.
     assert_eq!(env.deck.agents_badge(), crate::docs::Badge::default());
-    env.deck.on_agent_signal(&project, &instance, true);
+    env.deck.on_agent_signal(&project, &instance, true, None);
     assert_eq!(env.deck.agents_badge(), crate::docs::Badge { done: 0, busy: 1 });
-    env.deck.on_agent_signal(&project, &instance, false);
+    env.deck.on_agent_signal(&project, &instance, false, None);
     assert!(env.deck.tabs[i].done);
     assert_eq!(env.deck.agents_badge(), crate::docs::Badge { done: 1, busy: 0 });
     // Activating the tab without leaving the documents (e.g. an attachment) does not mark it as seen.
@@ -846,7 +846,7 @@ fn quitting_asks_while_an_agent_is_in_the_middle_of_a_turn_and_the_second_launch
     env.pump("the agent's tab", |d| d.tasks.task("t1").is_some_and(|t| d.tasks_tab_open(t)));
     let (project, instance) = (env.project(), env.task(&id).instance);
 
-    env.deck.on_agent_signal(&project, &instance, true);
+    env.deck.on_agent_signal(&project, &instance, true, None);
     assert_eq!(env.deck.working_tabs().len(), 1);
     env.deck.request_quit();
     assert!(!env.deck.quit_requested, "in the middle of a turn the app asks before quitting");
@@ -858,7 +858,7 @@ fn quitting_asks_while_an_agent_is_in_the_middle_of_a_turn_and_the_second_launch
     assert!(env.deck.quit_requested, "\"Quit anyway\"");
 
     env.deck.quit_requested = false;
-    env.deck.on_agent_signal(&project, &instance, false);
+    env.deck.on_agent_signal(&project, &instance, false, None);
     env.deck.request_quit();
     assert!(env.deck.quit_requested, "with no turn in progress there is nothing to ask");
 
@@ -1370,8 +1370,11 @@ fn a_hidden_window_still_types_the_queued_messages_and_the_late_answers_and_neve
     let (project, ident) = (env.project(), env.deck.tabs[tab].ident.clone());
     let size = env.deck.tabs[tab].session.size();
     // The hook signal (as Claude and Codex do) takes the "idle terminal" wait out of the way.
-    env.deck.on_agent_signal(&project, &ident.id(), true);
-    env.deck.on_agent_signal(&project, &ident.id(), false);
+    env.deck.on_agent_signal(&project, &ident.id(), true, Some(holt_core::Phase::Testing));
+    assert_eq!(env.deck.tabs[tab].phase, Some(holt_core::Phase::Testing));
+    env.deck.on_agent_signal(&project, &ident.id(), false, None);
+    assert_eq!(env.deck.tabs[tab].phase, None);
+    assert!(env.deck.tabs[tab].idle_since.is_some());
     let delivery = |prompt: &str, answer: bool| Delivery {
         request: 0,
         project: project.clone(),

@@ -16,6 +16,12 @@ fn debug_projects() -> Vec<crate::deck::ProjectView> {
             "antigravity@sidebar" => Some("claude-sonnet-5-5-medium".into()),
             _ => None,
         },
+        status: match (id, busy) {
+            ("claude", true) => Some(holt_core::Phase::Editing.label().into()),
+            ("claude@dev", false) => Some(holt_core::idle_label(std::time::Duration::from_secs(12 * 60))),
+            ("codex", false) => Some(holt_core::idle_label(std::time::Duration::from_secs(30))),
+            _ => None,
+        },
         color,
         busy,
         done: false,

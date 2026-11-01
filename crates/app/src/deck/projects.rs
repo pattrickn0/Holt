@@ -9,6 +9,7 @@ impl Deck {
         if let Some(demo) = &self.debug_projects {
             return demo.clone();
         }
+        let now = Instant::now();
         self.core
             .projects()
             .into_iter()
@@ -25,6 +26,7 @@ impl Deck {
                                 kind: t.kind.clone(),
                                 label: t.label.clone(),
                                 model: p.tab_models.get(&t.ident.id()).cloned(),
+                                status: t.status_label(now),
                                 color: t.color,
                                 busy: t.busy,
                                 done: t.done,
@@ -42,6 +44,7 @@ impl Deck {
                             parent: p.tab_parents.get(&ident.id()).cloned(),
                             label: ident.label(&self.agents.name(&ident.kind)),
                             model: p.tab_models.get(&ident.id()).cloned(),
+                            status: None,
                             color: self.agents.tab_color(&ident.kind),
                             kind: ident.kind,
                             busy: false,

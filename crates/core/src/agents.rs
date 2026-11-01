@@ -623,7 +623,13 @@ fn write_claude_hooks_with(data_dir: &Path, project_dir: &Path, config_dir: &Pat
     let padding = user_statusline_padding(project_dir, config_dir);
     let settings = serde_json::json!({
         // `SessionStart` also fires after `/clear` (new session id): `ask-agent --signal session` reads the id from stdin.
-        "hooks": { "UserPromptSubmit": hook("busy"), "Stop": hook("idle"), "SessionStart": hook("session") },
+        // `PostToolUse` carries `tool_name` and `tool_input` on stdin: `ask-agent --signal tool` maps it to the phase.
+        "hooks": {
+            "UserPromptSubmit": hook("busy"),
+            "Stop": hook("idle"),
+            "SessionStart": hook("session"),
+            "PostToolUse": hook("tool"),
+        },
         "statusLine": { "type": "command", "command": "ask-agent --usage", "padding": padding },
     });
     let text = serde_json::to_string_pretty(&settings).unwrap_or_default();
@@ -1109,6 +1115,7 @@ ok"
         assert_eq!(v["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"], "ask-agent --signal busy");
         // `/clear` starts a new conversation: the hook reports its id (the JSON arrives on stdin).
         assert_eq!(v["hooks"]["SessionStart"][0]["hooks"][0]["command"], "ask-agent --signal session");
+        assert_eq!(v["hooks"]["PostToolUse"][0]["hooks"][0]["command"], "ask-agent --signal tool");
         assert_eq!(v["statusLine"], serde_json::json!({ "type": "command", "command": "ask-agent --usage", "padding": 0 }));
         assert_eq!(
             write_claude_hooks_with(&tmp.path().join("data"), &tmp.path().join("project"), &tmp.path().join("claude")).expect("again"),

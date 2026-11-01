@@ -99,7 +99,7 @@ impl Deck {
             }
             CoreEvent::Download(_) if self.debug_hold_download => {}
             CoreEvent::Deliver(d) => self.on_deliver(d),
-            CoreEvent::AgentSignal { project, id, busy } => self.on_agent_signal(&project, &id, busy),
+            CoreEvent::AgentSignal { project, id, busy, phase } => self.on_agent_signal(&project, &id, busy, phase),
             CoreEvent::UsageChanged => {}
             CoreEvent::Activate => self.activate_requested = true,
             CoreEvent::TasksChanged { project } => self.tasks_changed(&project),
@@ -337,6 +337,9 @@ impl Deck {
                 let last = (*tab.session.shared.last_output.lock()).unwrap_or(now);
                 self.core.touch_activity(&tab.project, &tab.ident.id(), last);
                 tab.busy_output |= tab.busy;
+                if tab.busy {
+                    tab.idle_since = None;
+                }
                 if tab.busy && tab.turn_confirmed {
                     // The end-of-turn hook is what frees it; this only covers a lost notice.
                     tab.idle_deadline = Some(last + HOOK_STALE);
@@ -361,8 +364,10 @@ impl Deck {
                     tab.idle_deadline = None;
                     if tab.busy {
                         tab.busy = false;
+                        tab.phase = None;
                         released.push((tab.project.clone(), tab.ident.id()));
                         if std::mem::take(&mut tab.busy_output) {
+                            tab.idle_since = Some(now);
                             if active != Some(i) || reading {
                                 tab.done = true;
                             }
@@ -408,6 +413,8 @@ impl Deck {
             let tab = &mut self.tabs[i];
             tab.alive = false;
             tab.busy = false;
+            tab.phase = None;
+            tab.idle_since = None;
             tab.done = false;
             for q in tab.queue.drain() {
                 if let Some(mail) = q.mail {

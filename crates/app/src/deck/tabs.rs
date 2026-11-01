@@ -284,8 +284,8 @@ impl Deck {
         }
     }
 
-    /// The agent's hook (`ask-agent --signal`): start or end of turn.
-    pub(crate) fn on_agent_signal(&mut self, project: &str, id: &str, busy: bool) {
+    /// The agent's hook (`ask-agent --signal`): start or end of turn, or tool phase (`PostToolUse`).
+    pub(crate) fn on_agent_signal(&mut self, project: &str, id: &str, busy: bool, phase: Option<holt_core::Phase>) {
         let Some((idx, tab)) = self.tabs.iter_mut().enumerate().find(|(_, t)| t.project == project && t.ident.id() == id) else {
             return;
         };
@@ -295,15 +295,26 @@ impl Deck {
         tab.idle_deadline = busy.then(|| Instant::now() + HOOK_STALE);
         // Turn confirmed by the hook: if the end notice gets lost, the release still counts as an end.
         tab.busy_output |= busy;
+        let started = !tab.busy && busy;
         let finished = tab.busy && !busy;
         tab.busy = busy;
         if busy {
             tab.done = false;
-        } else if finished {
-            if self.active != Some(idx) || self.docs.view == CenterView::Docs {
-                tab.done = true;
+            tab.idle_since = None;
+            if phase.is_some() {
+                tab.phase = phase;
+            } else if started {
+                tab.phase = None;
             }
-            self.play_sound(false);
+        } else {
+            tab.phase = None;
+            if finished {
+                tab.idle_since = Some(Instant::now());
+                if self.active != Some(idx) || self.docs.view == CenterView::Docs {
+                    tab.done = true;
+                }
+                self.play_sound(false);
+            }
         }
     }
 
@@ -327,6 +338,8 @@ impl Deck {
             view: ViewState::default(),
             alive: false,
             busy: false,
+            phase: None,
+            idle_since: None,
             done: false,
             shown: 0,
             auto,
@@ -390,6 +403,8 @@ impl Deck {
         tab.hooked = false;
         tab.turn_confirmed = false;
         tab.busy = false;
+        tab.phase = None;
+        tab.idle_since = None;
         tab.done = false;
         tab.pending_enter.clear();
         tab.held_keys.clear();

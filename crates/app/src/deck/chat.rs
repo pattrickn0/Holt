@@ -84,6 +84,8 @@ impl Deck {
         tab.hooked = true;
         tab.turn_confirmed = false;
         tab.busy = false;
+        tab.phase = None;
+        tab.idle_since = None;
         tab.done = false;
         tab.idle_deadline = None;
         let Some(chat) = tab.chat.as_mut() else { return };
@@ -124,7 +126,7 @@ impl Deck {
         chat.transcript.push_user(shown, from);
         chat.turn_started.get_or_insert_with(Instant::now);
         let (project, id) = (tab.project.clone(), tab.ident.id());
-        self.on_agent_signal(&project, &id, true);
+        self.on_agent_signal(&project, &id, true, None);
         if let Some(tab) = self.tabs.get_mut(idx) {
             // The stream tells when the turn ends: the "no output" release of the terminal does not apply.
             tab.idle_deadline = None;
@@ -165,6 +167,8 @@ impl Deck {
         let rules: &[serde_json::Value] = if for_session { &card.suggestions } else { &[] };
         proc.answer_permission(request_id, allow, &card.input, "The user denied this action in Holt.", rules);
         chat.transcript.answer_permission(request_id, allow);
+        let phase = chat.transcript.phase();
+        self.tabs[idx].phase = phase;
     }
 
     /// Cuts the running turn (Esc, the stop button).
@@ -302,10 +306,15 @@ impl Deck {
         }
         let Some(chat) = self.tabs[idx].chat.as_mut() else { return };
         chat.transcript.apply(&ev);
+        let phase = chat.transcript.phase();
+        let busy = chat.transcript.busy();
+        self.tabs[idx].phase = phase;
         if let ChatEvent::Result(_) = ev {
-            if !chat.transcript.busy() {
-                chat.turn_started = None;
-                self.on_agent_signal(&project, &id, false);
+            if !busy {
+                if let Some(chat) = self.tabs[idx].chat.as_mut() {
+                    chat.turn_started = None;
+                }
+                self.on_agent_signal(&project, &id, false, None);
                 self.core.mail_turn_ended(&project, &id);
                 if let Some(tab) = self.tabs.get_mut(idx) {
                     tab.idle_deadline = None;

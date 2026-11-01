@@ -991,4 +991,38 @@ mod tests {
         assert_eq!(args, ["-c", "model=gpt-6-luna", "-c", "model_reasoning_effort=high"]);
         assert!(backend.spawn_args(&super::super::Launch { model: None, effort: None }).is_empty());
     }
+
+    #[test]
+    fn codex_items_and_approvals_drive_the_transcript_phase() {
+        use super::super::Phase;
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        t.push_user("test and edit", None);
+        let _ = p.user_message("test and edit");
+
+        for line in [
+            r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"/bin/bash -lc 'cargo test'","status":"inProgress"}}}"#,
+            r#"{"id":1,"method":"item/commandExecution/requestApproval","params":{"itemId":"c1","command":"/bin/bash -lc 'cargo test'"}}"#,
+        ] {
+            for ev in p.parse(line).events {
+                t.apply(&ev);
+            }
+        }
+        assert_eq!(t.phase(), Some(Phase::WaitingForYou));
+        t.answer_permission("1", true);
+        assert_eq!(t.phase(), Some(Phase::Testing));
+
+        for ev in p
+            .parse(r#"{"method":"item/started","params":{"item":{"type":"fileChange","id":"f1","status":"inProgress","changes":[{"path":"src/lib.rs","kind":{"type":"update"},"diff":"@@ -1,1 +1,1 @@\n-a\n+b"}]}}}"#)
+            .events
+        {
+            t.apply(&ev);
+        }
+        assert_eq!(t.phase(), Some(Phase::Editing));
+
+        for ev in p.parse(r#"{"method":"item/started","params":{"item":{"type":"webSearch","id":"w1","query":"rust docs"}}}"#).events {
+            t.apply(&ev);
+        }
+        assert_eq!(t.phase(), Some(Phase::SearchingWeb));
+    }
 }

@@ -145,11 +145,16 @@ fn scroll_to_show(widths: &[f32], n: usize, scroll: f32, view_w: f32, edge: f32)
 /// Paints the tabs `tabs` (indexes of `deck.tabs`) in `rect`, with horizontal scrolling when they do not
 /// fit. `shown` is the visible tab of the window; `focused`, whether the window has the focus.
 pub fn strip(deck: &mut Deck, ui: &Ui, rect: Rect, tabs: &[usize], shown: usize, focused: bool, scroll_id: Id) -> Option<StripClick> {
+    let now = std::time::Instant::now();
+    if tabs.iter().any(|&i| !deck.tabs[i].busy && deck.tabs[i].idle_since.is_some()) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(60));
+    }
     let items: Vec<Item> = tabs
         .iter()
         .map(|&i| {
             let tab = &deck.tabs[i];
             let is_active = deck.active == Some(i) || (i == shown && focused);
+            let status = tab.status_label(now);
             Item {
                 uid: tab.uid,
                 label: tab.label.clone(),
@@ -159,7 +164,7 @@ pub fn strip(deck: &mut Deck, ui: &Ui, rect: Rect, tabs: &[usize], shown: usize,
                 done: tab.done && !is_active,
                 mic: dictation::button_visual(deck.mic_phase, MicTarget::Tab(tab.uid)),
                 lead: Lead::Dot,
-                tip: tab_tip(&tab.label, tab.model.as_deref()),
+                tip: tab_tip(&tab.label, tab.model.as_deref(), status.as_deref()),
                 dirty: false,
             }
         })
@@ -513,11 +518,15 @@ fn tab_list(ui: &Ui, painter: &Painter, zone: Rect, items: &[Item], shown: usize
     chosen
 }
 
-/// Tab hint: the name, the model (whole) and how to rename it.
-fn tab_tip(label: &str, model: Option<&str>) -> String {
+/// Tab hint: the name, the phase or idle time, the model (whole) and how to rename it.
+fn tab_tip(label: &str, model: Option<&str>, status: Option<&str>) -> String {
+    let head = match status {
+        Some(s) if !s.is_empty() => format!("{label} ({s})"),
+        _ => label.to_owned(),
+    };
     match model {
-        Some(model) => t!("{label}\nModel: {model}\nDouble click or right click to rename", label, model = model),
-        None => t!("{label}\nDouble click or right click to rename", label),
+        Some(model) => t!("{label}\nModel: {model}\nDouble click or right click to rename", label = head, model = model),
+        None => t!("{label}\nDouble click or right click to rename", label = head),
     }
 }
 
@@ -612,14 +621,20 @@ mod tests {
 
     #[test]
     fn the_tip_names_the_full_model() {
-        let tip = || tab_tip("Claude · Dev", None);
+        let tip = || tab_tip("Claude · Dev", None, None);
         assert_eq!(i18n::english(tip), "Claude · Dev\nDouble click or right click to rename");
         assert_eq!(i18n::with_lang(Lang::PtBr, tip), "Claude · Dev\nDuplo clique ou botão direito para renomear");
-        let with_model = || tab_tip("OpenCode", Some("opencode/glm-5.3-flash-free"));
+        let with_model = || tab_tip("OpenCode", Some("opencode/glm-5.3-flash-free"), None);
         assert_eq!(i18n::english(with_model), "OpenCode\nModel: opencode/glm-5.3-flash-free\nDouble click or right click to rename");
         assert_eq!(
             i18n::with_lang(Lang::PtBr, with_model),
             "OpenCode\nModelo: opencode/glm-5.3-flash-free\nDuplo clique ou botão direito para renomear"
+        );
+        let with_status = || tab_tip("Claude · Dev", Some("claude-sonnet-4-6"), Some(holt_core::Phase::Editing.label()));
+        assert_eq!(i18n::english(with_status), "Claude · Dev (editing)\nModel: claude-sonnet-4-6\nDouble click or right click to rename");
+        assert_eq!(
+            i18n::with_lang(Lang::PtBr, with_status),
+            "Claude · Dev (editando)\nModelo: claude-sonnet-4-6\nDuplo clique ou botão direito para renomear"
         );
     }
 }
