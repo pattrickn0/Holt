@@ -285,6 +285,12 @@ impl Deck {
                 }
                 return;
             }
+            // In the chat view the statusline never runs: the plan's usage comes in the stream.
+            ChatEvent::Usage(usage) => {
+                let usage = holt_core::usage::AgentUsage { updated_ms: holt_core::util::now_ms(), ..usage.clone() };
+                self.core.set_usage(&self.tabs[idx].kind, usage);
+                return;
+            }
             ChatEvent::Permission(_) => {
                 // The agent is waiting for the user: same marker as a finished turn, and the chime.
                 if self.active != Some(idx) || self.docs.view == CenterView::Docs {

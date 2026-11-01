@@ -23,6 +23,7 @@ while IFS= read -r line; do
       ;;
     *) echo '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"hello"}]}}' ;;
   esac
+  echo '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":1793506200},"seven_day":{"utilization":0.61,"resetsAt":1793732400}}}}'
   echo '{"type":"result","is_error":false,"total_cost_usd":0.5,"session_id":"s"}'
 done
 "#;
@@ -167,6 +168,18 @@ fn the_tab_goes_to_the_terminal_and_back_on_the_same_conversation() {
     assert_eq!(items.len(), 2, "the conversation comes back from the CLI's own transcript: {items:?}");
     assert!(matches!(&items[0], Item::User { text, .. } if text == "first question"));
     assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some(session.as_str()), "same conversation");
+}
+
+#[test]
+fn the_plan_usage_in_the_stream_reaches_the_usage_bar() {
+    let mut env = env_with_chat_agent();
+    env.deck.tabs[0].chat.as_mut().expect("chat").composer = "hi".into();
+    env.deck.chat_submit(0);
+    env.pump("the usage of the turn", |d| d.core.usage_snapshot().get("claude").is_some_and(|u| u.weekly.is_some()));
+    let u = env.core.usage_snapshot()["claude"].clone();
+    assert_eq!(u.session.map(|w| w.used), Some(0.3));
+    assert_eq!(u.weekly.map(|w| w.used), Some(0.61));
+    assert!(u.updated_ms > 0);
 }
 
 #[test]

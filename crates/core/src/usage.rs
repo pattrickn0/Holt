@@ -1,13 +1,14 @@
 //! Agent plan usage (session and weekly limit), shown in the title bar.
 //!
 //! Sources (each fills [`UsageStore`] with [`Core::set_usage`]):
-//! - **Claude**: Claude Code statusline (`ask-agent --usage`, bridge route `POST /usage`);
+//! - **Claude**: Claude Code statusline in the terminal view (`ask-agent --usage`, bridge route `POST /usage`), and the
+//!   `rate_limit_event` of its stream in the chat view, where the statusline never runs ([`from_claude_rate_limits`]);
 //! - **Codex**: latest `rate_limits` from `~/.codex/sessions/**/rollout-*.jsonl` files;
 //! - **Antigravity**: quota queried via the API that the CLI itself uses;
 //!
 //! Codex and Antigravity are queried when an open tab exists for them **or** the CLI is installed, and the latest usage
 //! of each is kept in `data/usage.json`: the bar shows all agents with quota, even without an open window (Claude's
-//! is the latest sent by statusline).
+//! is the latest a Claude tab sent).
 //!
 //! STABLE CONTRACT: `UsageWindow`, `AgentUsage`, `Core::usage_snapshot` and `Core::set_usage`
 //! are consumed by the UI.
@@ -514,6 +515,18 @@ pub fn from_claude_statusline(v: &Value) -> AgentUsage {
     AgentUsage { session: window("five_hour"), weekly: window("seven_day"), ..Default::default() }
 }
 
+/// Usage from the `rate_limit_info` of a `rate_limit_event` in Claude Code's stream (the chat view, `-p`, where the
+/// statusline never runs): `unifiedWindows.{five_hour,seven_day}.{utilization (0..1), resetsAt (s Unix)}`. Without
+/// them (API key, unknown format), empty.
+pub fn from_claude_rate_limits(info: &Value) -> AgentUsage {
+    let window = |key: &str| {
+        let w = info.get("unifiedWindows")?.get(key)?;
+        let used = w.get("utilization").and_then(Value::as_f64).filter(|u| u.is_finite())?;
+        Some(UsageWindow { used: used.clamp(0.0, 1.0) as f32, resets_at_ms: w.get("resetsAt").and_then(epoch_ms) })
+    };
+    AgentUsage { session: window("five_hour"), weekly: window("seven_day"), ..Default::default() }
+}
+
 /// Instant in Unix ms: number in seconds (or already in ms, if too large for seconds) or
 /// RFC 3339 text.
 pub(crate) fn epoch_ms(v: &Value) -> Option<u64> {
@@ -819,6 +832,21 @@ mod tests {
         assert_eq!(model_usage(&claude, Some("sonnet"), NOW).map(|u| (u.used, u.fallback)), Some((0.5, false)));
         assert_eq!(duration_text(45 * 60_000), "45 min");
         assert_eq!(duration_text(125 * 60_000), "2 h 5 min");
+    }
+
+    #[test]
+    fn claude_stream_rate_limits() {
+        let info = json!({
+            "status": "allowed", "rateLimitType": "five_hour",
+            "unifiedWindows": {
+                "five_hour": { "utilization": 0.3, "resetsAt": 1793506200, "status": "allowed" },
+                "seven_day": { "utilization": 0.61, "resetsAt": 1793732400, "status": "allowed" }
+            }
+        });
+        let u = from_claude_rate_limits(&info);
+        assert_eq!(u.session, Some(UsageWindow { used: 0.3, resets_at_ms: Some(1_793_506_200_000) }));
+        assert_eq!(u.weekly, Some(UsageWindow { used: 0.61, resets_at_ms: Some(1_793_732_400_000) }));
+        assert_eq!(from_claude_rate_limits(&json!({ "status": "allowed" })), AgentUsage::default());
     }
 
     #[test]

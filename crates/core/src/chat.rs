@@ -180,7 +180,9 @@ pub enum ChatEvent {
     /// What the CLI saved of the conversation it just resumed (a backend that reads it from the process itself, not
     /// from a file: Codex's `thread/resume`). Applied only where the chat asked for it ([`Transcript::history_pending`]).
     Replay(Vec<Item>),
-    /// A line with nothing to show (rate limits, hooks, partial tool input...).
+    /// The plan's usage (Claude's `rate_limit_event`): it goes to the usage bar, not to the conversation.
+    Usage(crate::usage::AgentUsage),
+    /// A line with nothing to show (hooks, partial tool input...).
     Ignored,
 }
 
@@ -266,6 +268,14 @@ fn parse_claude_line(v: &Value) -> Vec<ChatEvent> {
             "status" if str_of(v, "status") == "requesting" => ChatEvent::Requesting,
             _ => ChatEvent::Ignored,
         },
+        "rate_limit_event" => {
+            let usage = crate::usage::from_claude_rate_limits(v.get("rate_limit_info").unwrap_or(&Value::Null));
+            if usage.session.is_some() || usage.weekly.is_some() {
+                ChatEvent::Usage(usage)
+            } else {
+                ChatEvent::Ignored
+            }
+        }
         "stream_event" => {
             let ev = v.get("event").unwrap_or(&Value::Null);
             let delta = ev.get("delta").unwrap_or(&Value::Null);
@@ -696,7 +706,7 @@ impl Transcript {
                 self.commands = commands.clone();
                 self.terminal_commands = terminal_commands.clone();
             }
-            ChatEvent::Requesting | ChatEvent::UnknownRequest { .. } | ChatEvent::Ignored => {}
+            ChatEvent::Requesting | ChatEvent::UnknownRequest { .. } | ChatEvent::Usage(_) | ChatEvent::Ignored => {}
             ChatEvent::Notice { text, error } => self.push(Item::Notice { text: text.clone(), error: *error }),
             ChatEvent::Replay(items) => {
                 // What the user already typed while the process was starting stays after the history.
@@ -1268,6 +1278,10 @@ mod tests {
     fn unknown_requests_and_stray_lines() {
         assert!(parse_line("not json").is_empty());
         assert!(parse_line(r#"{"type":"rate_limit_event"}"#).is_empty());
+        let ev = parse_line(
+            r#"{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":1793506200}}}}"#,
+        );
+        assert!(matches!(&ev[..], [ChatEvent::Usage(u)] if u.session.is_some_and(|w| w.used == 0.3) && u.weekly.is_none()), "{ev:?}");
         let ev = parse_line(r#"{"type":"control_request","request_id":"a","request":{"subtype":"hook_callback"}}"#);
         assert_eq!(ev, vec![ChatEvent::UnknownRequest { request_id: "a".into() }]);
         assert_eq!(parse_line(r#"{"type":"control_cancel_request","request_id":"a"}"#), vec![ChatEvent::PermissionCancelled("a".into())]);
