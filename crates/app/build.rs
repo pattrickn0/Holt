@@ -61,13 +61,21 @@ fn install_desktop_entry() {
         let template = std::fs::read_to_string("assets/holt.desktop")?;
         std::fs::create_dir_all(desktop.parent().expect("parent"))?;
         std::fs::create_dir_all(icon.parent().expect("parent"))?;
+        let new_icon = std::fs::read(&icon).ok() != Some(std::fs::read("assets/holt.png")?);
         std::fs::copy("assets/holt.png", &icon)?;
         std::fs::write(&desktop, template.replace("@EXEC@", &bin.display().to_string()))?;
         // Written now, they would look newer than this run and every build would run this again (and recompile the
-        // app): they take the template's time instead.
-        let stamp = std::fs::metadata("assets/holt.desktop")?.modified()?;
-        for f in [&desktop, &icon] {
+        // app): each takes its source's time instead. The icon must not keep an older time than its picture, or the
+        // desktop keeps showing the previous logo.
+        for (f, source) in [(&desktop, "assets/holt.desktop"), (&icon, "assets/holt.png")] {
+            let stamp = std::fs::metadata(source)?.modified()?;
             std::fs::File::options().write(true).open(f)?.set_modified(stamp)?;
+        }
+        // GNOME reads the icon through the theme's cache (`icon-theme.cache`, which other apps create): rebuild it
+        // when the logo changes, best effort.
+        if new_icon {
+            let hicolor = data.join("icons/hicolor");
+            let _ = std::process::Command::new("gtk-update-icon-cache").args(["-q", "-t", "-f"]).arg(&hicolor).status();
         }
         Ok(())
     })();
