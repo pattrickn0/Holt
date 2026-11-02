@@ -35,3 +35,5 @@ is not known up front, a way to report it (Antigravity from its `--log-file`, Co
 `resume-antigravity-and-codex.md`). Test the
 arguments in `resume.rs` and the flow with the fake agent in `tests/bridge.rs`
 (`a_claude_tab_resumes_its_own_conversation_and_a_refused_resume_starts_over`). Never add `--continue`.
+
+**ACP CLIs (OpenCode, Goose, Gemini, Copilot, Qwen) in the chat view:** no flag; the protocol resumes (`session/load` with the saved id, falling back to `session/new` with a notice). See `acp-protocol-traps.md`.

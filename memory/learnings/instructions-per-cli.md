@@ -19,6 +19,9 @@ user's `AGENTS.md`: a new project lacks one, and an agent lacking instructions l
   role, similar to Claude) and passes that folder (`write_agy_instructions`): nothing added to the user's repository.
 - **Goose, Copilot:** only read the project `AGENTS.md`. The app generates one containing solely the marker block when the folder lacks one, notifies in
   Chat, and never modifies an existing file (`Core::ensure_agents_file`). Unverified (not installed locally).
+- **Gemini, Qwen (ACP):** no channel verified, so the chat backend puts the instructions in front of the first prompt of a new
+  conversation (`<holt-instructions>`, `Instructions::FirstPrompt` in `chat/acp.rs`); a replayed history drops them. The terminal view
+  of these two gets none. **OpenCode, Goose, Copilot in ACP mode** use the channels above.
 - Generic instructions (file and block) do not list installed agents: otherwise the file would vary across machines and
   dirty `git status`.
 
