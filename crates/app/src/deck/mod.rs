@@ -338,6 +338,8 @@ pub struct Deck {
     pub files_collapsed: bool,
     /// DEBUG ONLY (`HOLT_DEBUG_UI=sidebar-empty`): shows the empty folder state in `FILES`.
     pub debug_files_empty: bool,
+    /// DEBUG ONLY (`HOLT_DEBUG_UI=sidebar-hover`): shows the hover-only collapse-all button of the `FILES` header.
+    pub debug_files_hover: bool,
     /// DEBUG ONLY (`HOLT_DEBUG_UI=sidebar-drag`): highlights the divider between `PROJECTS` and `FILES`.
     pub debug_projects_splitter_hot: bool,
     /// Requested right bar width (the effective one depends on the window; see `ui::right_width`).
@@ -568,6 +570,7 @@ impl Deck {
             sidebar_projects_dragging: false,
             files_collapsed: cfg.files_collapsed,
             debug_files_empty: false,
+            debug_files_hover: false,
             debug_projects_splitter_hot: false,
             right_w: if cfg.right_panel_width > 0.0 && cfg.right_panel_width != theme::RIGHT_OLD_DEFAULT_W {
                 cfg.right_panel_width

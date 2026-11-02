@@ -197,6 +197,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect, center_right: f32) -> Anch
         let g = galley(&painter, &project, theme::ui(12.0), p.text_2);
         x = place(&painter, Rect::from_min_max(Pos2::new(x, rect.min.y), rect.max), Align2::LEFT_CENTER, g, p.text_2).max.x + GAP;
         if let Some(branch) = branch_label(deck) {
+            // A long task branch must not run under the usage meter.
+            let branch = if branch.chars().count() > 28 { branch.chars().take(27).collect::<String>() + "…" } else { branch };
             x = chip(&painter, Pos2::new(x, cy), &branch, 10.5, p.text_soft).max.x;
         }
     }
@@ -284,7 +286,10 @@ fn draw_organization_switch(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, l
             painter.rect_filled(track, 6.0, p.recess);
             if layout.label {
                 let g = galley(painter, org_name(deck.organization), theme::ui(11.5), p.text_3);
-                let r = Rect::from_min_max(Pos2::new(track.min.x - ORG_LABEL_GAP - g.size().x, track.min.y), Pos2::new(track.min.x - ORG_LABEL_GAP, track.max.y));
+                let r = Rect::from_min_max(
+                    Pos2::new(track.min.x - ORG_LABEL_GAP - g.size().x, track.min.y),
+                    Pos2::new(track.min.x - ORG_LABEL_GAP, track.max.y),
+                );
                 place(painter, r, Align2::RIGHT_CENTER, g, p.text_3);
             }
             for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {

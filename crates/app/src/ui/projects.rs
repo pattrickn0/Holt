@@ -195,13 +195,27 @@ fn paint_plus_12(p: &Painter, center: Pos2, color: Color32) {
     p.line_segment([center + Vec2::new(0.0, -r), center + Vec2::new(0.0, r)], s);
 }
 
-/// `"dev · 3M"`: the active project's branch (or the start of the commit when detached) and, when there are
-/// changes, how many files changed. `None` without a repository.
-fn project_git_meta(deck: &Deck) -> Option<String> {
+/// The active project's branch (or the start of the commit when detached) and how many files changed.
+/// `None` without a repository.
+fn project_git_meta(deck: &Deck) -> Option<(String, usize)> {
     let st = deck.git.status()?;
     let branch = st.branch.clone().or_else(|| st.head.as_deref().map(|h| h.chars().take(7).collect()))?;
-    let changed = super::sidebar::changed_count(st);
-    Some(git_meta_label(&branch, changed))
+    Some((branch, super::sidebar::changed_count(st)))
+}
+
+/// `git_meta_label` cut to `room` px: a long branch name gives way (with an ellipsis), the changed count stays.
+fn fit_git_meta(painter: &Painter, branch: &str, changed: usize, room: f32) -> Option<std::sync::Arc<egui::Galley>> {
+    let font = theme::meta(10.0);
+    let color = theme::pal().text_3;
+    let chars: Vec<char> = branch.chars().collect();
+    for keep in (1..=chars.len()).rev() {
+        let name: String = if keep == chars.len() { branch.to_owned() } else { chars[..keep].iter().collect::<String>() + "…" };
+        let g = galley(painter, &git_meta_label(&name, changed), font.clone(), color);
+        if g.size().x <= room {
+            return Some(g);
+        }
+    }
+    None
 }
 
 /// `"dev"` when nothing changed, `"dev · 3M"` with 3 changed files.
@@ -563,10 +577,9 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                 };
                 let name_font = theme::ui_semibold(12.0);
                 let name_w = galley(&p, &proj.name, name_font.clone(), name_color).size().x;
-                if let Some(meta) = git_meta.as_ref().filter(|_| proj.active && right >= inner.max.x - 6.0) {
+                if let Some((branch, changed)) = git_meta.as_ref().filter(|_| proj.active && right >= inner.max.x - 6.0) {
                     let room = right - name_x - name_w.min((right - name_x).max(1.0)) - GAP;
-                    if room >= META_MIN_W {
-                        let g = galley_trunc(&p, meta, theme::meta(10.0), theme::pal().text_3, room);
+                    if let Some(g) = fit_git_meta(&p, branch, *changed, room).filter(|_| room >= META_MIN_W) {
                         let w = g.size().x;
                         place(
                             &p,

@@ -243,7 +243,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
 
     // The collapse-all button fades in while the pointer is over the FILES area (header and tree).
     let area = Rect::from_min_max(head_rect.min, if deck.files_collapsed { head_rect.max } else { rect.max });
-    let over_area = !dragging && ctx.input(|i| i.pointer.hover_pos()).is_some_and(|ptr| area.contains(ptr));
+    let over_area = deck.debug_files_hover || (!dragging && ctx.input(|i| i.pointer.hover_pos()).is_some_and(|ptr| area.contains(ptr)));
     let hover_t = ctx.animate_bool_with_time(Id::new("files-hover-actions"), over_area, 0.12);
 
     let mut icons_left_x = head_rect.max.x - FILES_BTN_EDGE;
@@ -326,7 +326,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
 
     // Context text ("<project> · <branch>", or "N changed") in meta(10), with ellipsis; it gives way to the
     // collapse-all button as it fades in.
-    let ctx_left = label_end_x + 5.0;
+    let ctx_left = label_end_x + 8.0;
     let ctx_right = icons_left_x - 2.0 - if has_folder { slot_w } else { 0.0 };
     if !meta_text.is_empty() && ctx_right - ctx_left >= 24.0 {
         let color = if meta_strong { theme::pal().text_2 } else { theme::pal().text_3 };
