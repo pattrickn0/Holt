@@ -28,17 +28,16 @@ Decisions the user already made (do not reopen unless they ask):
 - "+ New agent" lives **inside** the active project, at the end of its agent list (a drawn 12 px `+` at `x = 30`, aligned
   with the agent logos, followed by `"New agent"`); the "+" of the PROJECTS header creates a project (tooltip `"New project"`).
   No loose "+" in the title bar.
-- Window organization (`Tabs | Split | Highlight`) lives in the **title bar** and is a real control, not decoration: a
-  `96×24` `recess` track (corners 6) with three `30×20` segments (corners 4, 2 px inset) and `16×11` glyphs (stroke 1.4);
-  idle `text_2`, hover `hover` + `text`, active `selected` + `text_strong`, not accent — a setting, not a state. Its
-  **right edge is anchored to the center island's right edge** (it sits above the area it rearranges); when that leaves
-  `< 16 px` to the usage meter it goes left of the meter with a 1 px, 16 px tall separator and 10 px gaps
-  (`titlebar::org_switch_layout`, pure and tested). The active mode's name (`"Split"`, `ui(11.5)` `text_3`) shows left
-  of the track and hides first when room runs out. Below `860 px` window width (or `< 96 px` free) it compacts to a
-  single `26×24` cycle button (`org_switch_mode`), hidden when `< 26 px`. Tooltips say the effect (`"Split: windows side
-  by side"`). Second entry point: the **LAYOUT** section at the top of the ☰ menu (three rows, a check on the current
-  one). The window of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at 62%
-  (`theme::PANE_*`). Footer with shortcuts: not for now.
+- Window organization (`Tabs | Split | Highlight`) lives in the **left sidebar**, never in the title bar (the user confirmed
+  it twice: "move this to the left sidebar, like I asked you"). One 28 px row right under the Agents | Documents switch
+  (above PROJECTS): the section label `LAYOUT` (same style as `PROJECTS` / `FILES`) on the left, the switch right-aligned:
+  a `96×24` `recess` track (corners 6) with three `30×20` segments (corners 4, 2 px inset) and `16×11` glyphs (stroke 1.4);
+  idle `text_2`, hover `hover` + `text`, active `selected` + `text_strong`, not accent — a setting, not a state. At narrow
+  sidebar widths the label is dropped before the switch shrinks (`sidebar::layout_label_fits`). Tooltips say the effect
+  (`"Split: windows side by side"`). Only shown with the Agents view; with the sidebar collapsed the **LAYOUT** section at
+  the top of the ☰ menu (three rows, a check on the current one) is the way in. No switch, label or cycle button in the
+  title bar. The window of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at
+  62% (`theme::PANE_*`). Footer with shortcuts: not for now.
 - FILES header: only **filter** and **changed only** are always visible (toggles with a lit state); **collapse all**
   fades in (~120 ms) while the pointer is over the FILES area, and **refresh** lives only in the header's right-click
   menu (the tree already refreshes from the watcher). A project without a folder shows no header actions at all (no dead
