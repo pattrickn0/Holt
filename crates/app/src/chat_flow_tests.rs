@@ -4,6 +4,7 @@
 //! conversation. No window: the frame is just `before_frame`.
 
 use std::os::unix::fs::PermissionsExt;
+use std::time::Duration;
 
 use holt_core::chat::Item;
 use holt_core::Ident;
@@ -21,6 +22,14 @@ while IFS= read -r line; do
       echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/x"},"tool_use_id":"t1","permission_suggestions":[]}}'
       IFS= read -r answer
       printf '%s\n' "$answer" > answer.txt
+      ;;
+    *slow*)
+      echo '{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"sleep 60"}}]}}'
+      IFS= read -r next
+      printf '%s\n' "$next" > interrupt.txt
+      echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}'
+      echo '{"type":"result","is_error":true,"total_cost_usd":0,"session_id":"s"}'
+      continue
       ;;
     *) echo '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"hello"}]}}' ;;
   esac
@@ -225,6 +234,17 @@ fn a_view_switch_during_a_turn_waits_for_its_end_instead_of_killing_it() {
 const FAKE_ANTIGRAVITY: &str = r#"#!/bin/sh
 echo '{"event":"init","conversation_id":"01234567-89ab-cdef-0123-456789abcdef","init":{"permission_mode":"always-proceed"}}'
 while IFS= read -r line; do
+  case "$line" in
+    *slow*)
+      # The interrupt of Antigravity is a SIGINT to the process group: the CLI stays alive and ends the turn by itself.
+      trap 'stopped=1' INT
+      sleep 30 &
+      wait $!
+      trap - INT
+      echo '{"event":"result","result":{"conversation_id":"01234567-89ab-cdef-0123-456789abcdef","status":"ERROR","response":"","error":"interrupted"}}'
+      continue
+      ;;
+  esac
   echo '{"event":"step_update","step_update":{"conversation_id":"01234567-89ab-cdef-0123-456789abcdef","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"hello from agy"}}'
   echo '{"event":"step_update","step_update":{"conversation_id":"01234567-89ab-cdef-0123-456789abcdef","step_index":1,"state":"DONE","step_type":"agent_response"}}'
   echo '{"event":"result","result":{"conversation_id":"01234567-89ab-cdef-0123-456789abcdef","status":"SUCCESS","response":"hello from agy"}}'
@@ -335,7 +355,33 @@ if [ "$1" = "app-server" ]; then
         id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
         echo "{\"id\":$id,\"result\":{\"turn\":{\"id\":\"turn-1\"}}}"
         echo '{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}'
-        echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m2","text":"hello from codex"}}}'
+        case "$line" in
+          *need-permission*)
+            echo '{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"touch x","status":"inProgress"}}}'
+            echo '{"id":40,"method":"item/commandExecution/requestApproval","params":{"itemId":"c1","command":"touch x"}}'
+            IFS= read -r answer
+            printf '%s\n' "$answer" >> answers.txt
+            echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m3","text":"permission handled"}}}'
+            ;;
+          *slow*)
+            echo '{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c2","command":"sleep 60","status":"inProgress"}}}'
+            while IFS= read -r next; do
+              printf '%s\n' "$next" >> interrupts.txt
+              case "$next" in
+                *turn/interrupt*)
+                  iid=$(printf '%s\n' "$next" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+                  echo "{\"id\":$iid,\"result\":{}}"
+                  break
+                  ;;
+              esac
+            done
+            echo '{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"interrupted"}}}'
+            continue
+            ;;
+          *)
+            echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m2","text":"hello from codex"}}}'
+            ;;
+        esac
         echo '{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}'
         ;;
     esac
@@ -641,4 +687,159 @@ fn the_model_and_effort_pickers_do_not_apply_to_an_acp_agent_that_has_none() {
     assert_eq!(notices, 2, "{:?}", items(&env));
     assert!(holt_core::models::effort_unavailable("goose", None).is_some());
     assert!(!holt_core::models::has_model_list("goose"));
+}
+
+// ---------- Regression pass of the three native backends: what the automated flow did not cover ----------
+
+#[test]
+fn interrupting_a_claude_turn_sends_the_interrupt_and_the_next_message_still_works() {
+    let mut env = env_with_chat_agent();
+    send(&mut env, "do something slow");
+    env.pump("the running call", |d| {
+        d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.iter().any(|i| matches!(i, Item::Tool(_))))
+    });
+    assert!(env.deck.tabs[0].busy);
+    assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::RunningCommand));
+    env.deck.chat_interrupt(0);
+    env.pump("the end of the turn", |d| !d.tabs[0].busy);
+    let items = items(&env);
+    assert!(items.iter().any(|i| matches!(i, Item::Notice { text, error: false } if text == "Interrupted.")), "{items:?}");
+    assert!(!items.iter().any(|i| matches!(i, Item::Notice { error: true, .. })), "an interrupt is not an error: {items:?}");
+    assert_eq!(env.deck.tabs[0].phase, None);
+    assert!(env.deck.tabs[0].idle_since.is_some());
+    let sent: Value = serde_json::from_str(std::fs::read_to_string(env.ws.join("interrupt.txt")).expect("interrupt").trim()).expect("json");
+    assert_eq!(sent["type"], "control_request");
+    assert_eq!(sent["request"]["subtype"], "interrupt");
+    // The process is alive and takes the next message.
+    send(&mut env, "hello again");
+    env.pump("the next answer", |d| !d.tabs[0].busy && d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.len() >= 5));
+    assert!(matches!(self::items(&env).last(), Some(Item::Assistant { text, .. }) if text == "hello"));
+}
+
+#[test]
+fn interrupting_an_antigravity_turn_signals_the_process_and_the_turn_ends_interrupted() {
+    let mut env = env_with_antigravity_chat_agent();
+    send(&mut env, "do something slow");
+    assert!(env.deck.tabs[0].busy);
+    // The fake needs a moment to be inside its `wait`; the signal before that would kill the shell.
+    std::thread::sleep(Duration::from_millis(300));
+    env.deck.chat_interrupt(0);
+    env.pump("the end of the turn", |d| !d.tabs[0].busy);
+    let items = items(&env);
+    assert!(items.iter().any(|i| matches!(i, Item::Notice { text, error: false } if text == "Interrupted.")), "{items:?}");
+    assert!(env.deck.tabs[0].alive, "SIGINT ends the turn, not the CLI");
+    send(&mut env, "hello");
+    env.pump("the next answer", |d| !d.tabs[0].busy && d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.len() >= 4));
+    assert!(self::items(&env).iter().any(|i| matches!(i, Item::Assistant { text, .. } if text == "hello from agy")));
+}
+
+fn codex_answers(env: &Env) -> Vec<Value> {
+    std::fs::read_to_string(env.ws.join("answers.txt")).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+}
+
+#[test]
+fn codex_approvals_are_cards_and_accept_session_and_decline_reach_the_cli() {
+    let mut env = env_with_codex_chat_agent();
+    for (allow, for_session, decision) in [(true, false, "accept"), (true, true, "acceptForSession"), (false, false, "decline")] {
+        send(&mut env, "need-permission please");
+        env.pump("the approval card", |d| d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.waiting_for_permission()));
+        assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::WaitingForYou));
+        let card = env.deck.tabs[0].chat.as_ref().expect("chat").transcript.pending_permission().expect("card").clone();
+        assert_eq!((card.request_id.as_str(), card.tool.as_str(), card.input["command"].as_str()), ("40", "Bash", Some("touch x")));
+        env.deck.chat_answer(0, "40", allow, for_session);
+        env.pump("the end of the turn", |d| !d.tabs[0].busy);
+        assert_eq!(env.deck.tabs[0].phase, None);
+        assert!(env.deck.tabs[0].idle_since.is_some());
+        let answers = codex_answers(&env);
+        assert_eq!(answers.last().expect("answer")["id"], 40);
+        assert_eq!(answers.last().expect("answer")["result"]["decision"], decision);
+    }
+    assert_eq!(codex_answers(&env).len(), 3);
+}
+
+#[test]
+fn interrupting_a_codex_turn_asks_the_turn_to_stop_and_it_ends_interrupted() {
+    let mut env = env_with_codex_chat_agent();
+    send(&mut env, "do something slow");
+    env.pump("the running command", |d| {
+        d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.iter().any(|i| matches!(i, Item::Tool(_))))
+    });
+    assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::RunningCommand));
+    env.deck.chat_interrupt(0);
+    env.pump("the end of the turn", |d| !d.tabs[0].busy);
+    let items = items(&env);
+    assert!(items.iter().any(|i| matches!(i, Item::Notice { text, .. } if text == "Interrupted.")), "{items:?}");
+    let sent = std::fs::read_to_string(env.ws.join("interrupts.txt")).expect("interrupt");
+    assert!(sent.contains("\"method\":\"turn/interrupt\"") && sent.contains("\"turnId\":\"turn-1\""), "{sent}");
+    assert_eq!(env.deck.tabs[0].phase, None);
+}
+
+#[test]
+fn a_claude_conversation_comes_back_after_holt_is_closed_and_opened_again() {
+    let mut env = env_with_chat_agent();
+    let id = env.deck.tabs[0].ident.id();
+    let session = env.core.tab_session(&env.project(), &id).expect("the conversation id");
+    // What Claude saved of the conversation by the time Holt closes.
+    let dir = env.ws.parent().expect("root").join("home").join(".claude").join("projects").join("-ws");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let lines = [
+        json!({ "type": "user", "message": { "content": "first question" } }),
+        json!({ "type": "assistant", "message": { "id": "m1", "content": [{ "type": "text", "text": "first answer" }] } }),
+    ];
+    std::fs::write(dir.join(format!("{session}.jsonl")), lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")).expect("file");
+
+    env.restart();
+    env.pump("the agent list", |d| d.agents.knows("claude"));
+    env.pump("the tab to come back", |d| d.tabs.first().is_some_and(|t| t.alive));
+    let tab = &env.deck.tabs[0];
+    assert_eq!(tab.ident.id(), id);
+    assert!(tab.chat.is_some(), "it comes back in the chat view");
+    let args = &tab.spec.as_ref().expect("spec").args;
+    assert!(args.iter().any(|a| a == "--resume") && args.contains(&session), "{args:?}");
+    let items = items(&env);
+    assert_eq!(items.len(), 2, "{items:?}");
+    assert!(matches!(&items[0], Item::User { text, .. } if text == "first question"));
+    assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "first answer"));
+}
+
+#[test]
+fn an_acp_conversation_comes_back_after_holt_is_closed_and_opened_again() {
+    let mut env = env_with_acp_chat_agent();
+    let id = env.deck.tabs[0].ident.id();
+    send(&mut env, "hello");
+    env.pump("the first answer", |d| !d.tabs[0].busy && d.tabs[0].idle_since.is_some());
+    assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some("acp-sess-1"));
+
+    env.restart();
+    env.pump("the agent list", |d| d.agents.knows("goose"));
+    env.pump("the history", |d| d.tabs.first().is_some_and(|t| t.alive && t.chat.as_ref().is_some_and(|c| c.transcript.items.len() >= 2)));
+    let items = items(&env);
+    assert!(matches!(&items[0], Item::User { text, .. } if text == "prior question"), "{items:?}");
+    assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "prior answer"));
+    assert_eq!(env.deck.tabs[0].spec.as_ref().expect("spec").session.as_deref(), Some("acp-sess-1"));
+}
+
+#[test]
+fn a_codex_model_and_effort_picked_in_the_chat_restart_the_process_on_the_same_thread() {
+    let mut env = env_with_codex_chat_agent();
+    let id = env.deck.tabs[0].ident.id();
+    let session = "th-123";
+    let codex_dir = env.ws.parent().expect("root").join("home").join(".codex").join("sessions").join("2026").join("10").join("30");
+    std::fs::create_dir_all(&codex_dir).expect("mkdir");
+    std::fs::write(codex_dir.join(format!("rollout-2026-10-30T12-00-00-{session}.jsonl")), "").expect("rollout");
+    assert!(env.core.set_tab_session(&env.project(), &id, session));
+    let before = env.deck.tabs[0].spawned_at;
+    env.deck.chat_set_model(0, Some("gpt-5.5"));
+    env.deck.chat_set_effort(0, Some(holt_core::models::Effort::Medium));
+    env.pump("the process to be running again", |d| d.tabs[0].alive && d.tabs[0].chat.as_ref().is_some_and(|c| c.proc.is_some()));
+    let tab = &env.deck.tabs[0];
+    assert!(tab.spawned_at > before);
+    let spec = tab.spec.as_ref().expect("spec");
+    assert!(
+        spec.args.contains(&"model=gpt-5.5".to_owned()) && spec.args.contains(&"model_reasoning_effort=medium".to_owned()),
+        "{:?}",
+        spec.args
+    );
+    assert_eq!(spec.session.as_deref(), Some(session), "thread/resume continues the same thread");
+    assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some(session));
 }

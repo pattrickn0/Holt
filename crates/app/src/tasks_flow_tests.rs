@@ -98,6 +98,33 @@ impl Env {
         Env { _tmp: tmp, ws, core, deck, ctx }
     }
 
+    /// Closes Holt and opens it again on the same folders: the tabs it saved come back, as after quitting the app. The
+    /// processes of the old run are killed first (what quitting does).
+    pub(crate) fn restart(&mut self) {
+        self.deck.shutdown();
+        let config = self.core.config();
+        self.core.shutdown();
+        let root = self.ws.parent().expect("root").to_path_buf();
+        let paths = AppPaths {
+            app_dir: root.clone(),
+            bin_dir: root.join("bin"),
+            data_dir: root.join("data"),
+            default_workspace: root.join("ws"),
+            whisper_dir: root.join("whisper"),
+            config_file: root.join("cfg").join("config.json"),
+        };
+        let opts = StartOptions {
+            search_path: Some(std::env::join_paths([root.join("fake-bin"), git_dir()]).expect("PATH")),
+            home_dir: Some(root.join("home")),
+            watch_workspace: false,
+            config: Some(config),
+            system_dirs: false,
+        };
+        let (core, rx) = Core::start_with(paths, opts).expect("start again");
+        self.deck = Deck::new(core.clone(), rx, std::sync::Arc::new(|| {}));
+        self.core = core;
+    }
+
     /// Runs frames until `done` becomes true (or 30 s).
     pub(crate) fn pump(&mut self, what: &str, done: impl Fn(&Deck) -> bool) {
         let limit = Instant::now() + Duration::from_secs(30);
