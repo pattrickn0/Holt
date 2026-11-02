@@ -1,4 +1,4 @@
-//! `#sidebar`: the Agents | Documents switch, the projects and agents, the draggable divider, and the
+//! `#sidebar`: the Agents | Documents switch, the window layout row, the projects and agents, the draggable divider, and the
 //! VS Code-style file explorer with filter and changed-only views.
 
 use std::collections::HashMap;
@@ -12,6 +12,21 @@ use crate::theme;
 use holt_core::git::{EntryKind, GitEntry};
 use holt_core::t;
 use holt_core::DirEntry;
+use holt_core::Organization;
+
+/// Height of the `LAYOUT` row (label + organization switch) under the Agents | Documents switch.
+pub const LAYOUT_ROW_H: f32 = 28.0;
+/// Organization switch (`recess` track, corners 6; three 30×20 segments, corners 4, 2 px inset).
+pub const ORG_TRACK_W: f32 = 96.0;
+pub const ORG_TRACK_H: f32 = 24.0;
+const ORG_SEG: Vec2 = Vec2::new(30.0, 20.0);
+const ORG_INSET: f32 = 2.0;
+/// Size of the layout glyphs and their stroke.
+const ORG_GLYPH: Vec2 = Vec2::new(16.0, 11.0);
+const ORG_GLYPH_STROKE: f32 = 1.4;
+/// Side margin of the `LAYOUT` row (label and track) and the least space kept between them.
+const LAYOUT_MARGIN: f32 = 10.0;
+const LAYOUT_LABEL_GAP: f32 = 8.0;
 
 /// Height of the `FILES` section header.
 pub const FILES_HEAD_H: f32 = super::projects::SECTION_H;
@@ -154,6 +169,92 @@ pub fn flatten_files(files: &[DirEntry], marks: &HashMap<String, char>, query: &
     out
 }
 
+/// Whether the `LAYOUT` label fits beside the switch: it is dropped before the switch shrinks.
+pub fn layout_label_fits(row_w: f32, label_w: f32) -> bool {
+    row_w >= LAYOUT_MARGIN + label_w + LAYOUT_LABEL_GAP + ORG_TRACK_W + LAYOUT_MARGIN
+}
+
+/// Name of a window organization (the switch's tooltips' title and the ☰ Layout menu items).
+pub fn org_name(org: Organization) -> &'static str {
+    match org {
+        Organization::Tabs => t!("Tabs"),
+        Organization::Split => t!("Split"),
+        Organization::Highlight => t!("Highlight"),
+    }
+}
+
+/// What choosing an organization does (tooltips and the ☰ Layout menu).
+pub fn org_effect(org: Organization) -> &'static str {
+    match org {
+        Organization::Tabs => t!("Tabs: one window at a time"),
+        Organization::Split => t!("Split: windows side by side"),
+        Organization::Highlight => t!("Highlight: one big window, the others small"),
+    }
+}
+
+/// Draws the `LAYOUT` row in `row`: the section label on the left and the 96×24 `recess` track with three
+/// 30×20 segments (active in `selected`, not accent) right-aligned. At narrow widths the label goes first.
+fn layout_row(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, row: Rect) {
+    let p = theme::pal();
+    let label = t!("LAYOUT");
+    let label_w =
+        super::galley_spaced(painter, &label.to_uppercase(), theme::label(10.0), p.text_3, 10.0 * theme::LABEL_SPACING_EM).size().x;
+    if layout_label_fits(row.width(), label_w) {
+        section_label(painter, Rect::from_min_size(Pos2::new(row.min.x, row.center().y - super::SECTION_LABEL_H / 2.0), row.size()), label);
+    }
+    let track = Rect::from_min_size(
+        Pos2::new(row.max.x - LAYOUT_MARGIN - ORG_TRACK_W, row.center().y - ORG_TRACK_H / 2.0),
+        Vec2::new(ORG_TRACK_W, ORG_TRACK_H),
+    );
+    painter.rect_filled(track, 6.0, p.recess);
+    for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {
+        let seg = Rect::from_min_size(track.min + Vec2::splat(ORG_INSET) + Vec2::new(ORG_SEG.x * i as f32, 0.0), ORG_SEG);
+        let r = clickable(ui, seg, Id::new(("sidebar-org", i)));
+        let on = deck.organization == org;
+        if on {
+            painter.rect_filled(seg, 4.0, p.selected);
+        } else if r.hovered() {
+            painter.rect_filled(seg, 4.0, p.hover);
+        }
+        let fg = if on {
+            p.text_strong
+        } else if r.hovered() {
+            p.text
+        } else {
+            p.text_2
+        };
+        paint_org_icon(painter, seg.center(), org, fg);
+        if tip(r, org_effect(org)).clicked() {
+            deck.set_organization(org);
+        }
+    }
+}
+
+/// 16×11 window-layout glyph (stroke 1.4) for `Tabs` (tab bar on top), `Split` (two equal columns), or
+/// `Highlight` (a big left window and two small ones on the right).
+fn paint_org_icon(painter: &egui::Painter, center: Pos2, org: Organization, color: Color32) {
+    let frame = Rect::from_center_size(center, ORG_GLYPH);
+    let stroke = Stroke::new(ORG_GLYPH_STROKE, color);
+    painter.rect_stroke(frame, 2.0, stroke, egui::StrokeKind::Inside);
+    match org {
+        Organization::Tabs => {
+            let y = frame.min.y + 4.0;
+            painter.line_segment([Pos2::new(frame.min.x + 1.0, y), Pos2::new(frame.max.x - 1.0, y)], stroke);
+            painter.line_segment([Pos2::new(frame.min.x + 6.5, frame.min.y + 1.0), Pos2::new(frame.min.x + 6.5, y)], stroke);
+        }
+        Organization::Split => {
+            let x = frame.center().x;
+            painter.line_segment([Pos2::new(x, frame.min.y + 1.0), Pos2::new(x, frame.max.y - 1.0)], stroke);
+        }
+        Organization::Highlight => {
+            let x = frame.min.x + 10.0;
+            let y = frame.center().y;
+            painter.line_segment([Pos2::new(x, frame.min.y + 1.0), Pos2::new(x, frame.max.y - 1.0)], stroke);
+            painter.line_segment([Pos2::new(x, y), Pos2::new(frame.max.x - 1.0, y)], stroke);
+        }
+    }
+}
+
 pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     let painter = ui.painter_at(rect);
     let ctx = ui.ctx().clone();
@@ -169,6 +270,12 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     let mut top_y = switch.max.y + 6.0;
     separator(&painter, Pos2::new(rect.min.x, top_y + 0.5), Pos2::new(rect.max.x, top_y + 0.5));
     top_y += 1.0;
+
+    // ---------- LAYOUT row: window organization (only with the Agents view) ----------
+    if deck.docs.view != crate::docs::CenterView::Docs {
+        layout_row(deck, ui, &painter, Rect::from_min_size(Pos2::new(rect.min.x, top_y), Vec2::new(rect.width(), LAYOUT_ROW_H)));
+        top_y += LAYOUT_ROW_H;
+    }
 
     // ---------- PROJECTS section ----------
     let projects = deck.project_views();
@@ -916,5 +1023,13 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "sidebar.rs");
         assert_eq!(filtered[0].parent_dir, "crates/app/src/ui");
+    }
+
+    #[test]
+    fn layout_label_drops_before_the_switch_shrinks() {
+        // 10 + 48 label + 8 gap + 96 track + 10 margin = 172.
+        assert!(layout_label_fits(172.0, 48.0));
+        assert!(!layout_label_fits(171.0, 48.0));
+        assert!(!layout_label_fits(150.0, 48.0));
     }
 }
