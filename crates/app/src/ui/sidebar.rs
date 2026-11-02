@@ -601,6 +601,11 @@ fn git_mark(e: &GitEntry) -> char {
     }
 }
 
+/// How many files of the project changed (paths under the workspace prefix).
+pub fn changed_count(st: &holt_core::git::GitStatus) -> usize {
+    st.entries.iter().filter(|e| e.path.starts_with(st.prefix.as_str())).count()
+}
+
 /// The Git letter of every changed file of the project, by the path relative to the workspace (the `status`
 /// comes with paths relative to the repository root, which may be a folder above the workspace).
 fn git_marks(deck: &Deck) -> HashMap<String, char> {

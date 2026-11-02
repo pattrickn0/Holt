@@ -7,16 +7,18 @@ use holt_core::models::short_model;
 
 use egui::{Align2, Color32, CursorIcon, Id, Order, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
-use super::{clickable, dot, frame, galley, galley_trunc, menus, place, shadow, text_in, tip};
+use super::{clickable, dot, frame, galley, galley_trunc, menus, paint_folder_icon, place, shadow, text_in, tip};
 use crate::deck::{AgentBadge, Deck, ProjectView};
 use crate::icons::Icon;
 use crate::theme;
 use holt_core::t;
 
-/// Height of a project row and of the "+ New agent" row.
+/// Height of the "+ New agent" row.
 pub const ROW_H: f32 = 22.0;
 /// Height of an agent row.
 pub const AGENT_ROW_H: f32 = 24.0;
+/// Height of a project row (the same as an agent row).
+pub const PROJECT_ROW_H: f32 = AGENT_ROW_H;
 pub const SECTION_H: f32 = 24.0;
 /// Side margin of the rows: the selection and the hover do not touch the island's edge.
 const SIDE_MARGIN: f32 = 4.0;
@@ -93,7 +95,7 @@ pub fn list_height(projects: &[ProjectView]) -> f32 {
         .iter()
         .map(|p| {
             let agents = if p.expanded { p.agents.len() as f32 * AGENT_ROW_H + if p.active { ROW_H } else { 0.0 } } else { 0.0 };
-            ROW_H + agents
+            PROJECT_ROW_H + agents
         })
         .sum()
 }
@@ -181,7 +183,8 @@ pub fn agent_state_tail(ag: &AgentBadge, is_active_tab: bool, hovered: bool) -> 
         return Some((t!("done").to_owned(), TailKind::Done));
     }
     let idle = ag.status.as_deref().map(compact_idle).unwrap_or_default();
-    (!idle.is_empty()).then_some((idle, TailKind::Idle))
+    // Under a minute ("<1m") is noise: nothing shows until the agent has been idle for a minute.
+    (!idle.is_empty() && !idle.starts_with('<')).then_some((idle, TailKind::Idle))
 }
 
 /// Draws a 12 px `+` icon centered at `center` (aligns with the 12 px agent marks).
@@ -190,6 +193,24 @@ fn paint_plus_12(p: &Painter, center: Pos2, color: Color32) {
     let r = 4.0;
     p.line_segment([center + Vec2::new(-r, 0.0), center + Vec2::new(r, 0.0)], s);
     p.line_segment([center + Vec2::new(0.0, -r), center + Vec2::new(0.0, r)], s);
+}
+
+/// `"dev · 3M"`: the active project's branch (or the start of the commit when detached) and, when there are
+/// changes, how many files changed. `None` without a repository.
+fn project_git_meta(deck: &Deck) -> Option<String> {
+    let st = deck.git.status()?;
+    let branch = st.branch.clone().or_else(|| st.head.as_deref().map(|h| h.chars().take(7).collect()))?;
+    let changed = super::sidebar::changed_count(st);
+    Some(git_meta_label(&branch, changed))
+}
+
+/// `"dev"` when nothing changed, `"dev · 3M"` with 3 changed files.
+pub fn git_meta_label(branch: &str, changed: usize) -> String {
+    if changed == 0 {
+        branch.to_owned()
+    } else {
+        format!("{branch} · {changed}M")
+    }
 }
 
 /// Opens a folder in the operating system's file explorer.
@@ -444,6 +465,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
     let mut new_agent_anchor: Option<Rect> = None;
     let active_color = deck.accent();
     let deck_active = deck.active;
+    let git_meta = project_git_meta(deck);
     let mut agent_drag: AgentDrag = ctx.data(|d| d.get_temp::<AgentDrag>(drag_key())).flatten();
     let pointer = ctx.input(|i| i.pointer.interact_pos());
     let mut drop_target: Option<DropTarget> = None;
@@ -455,12 +477,12 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
             let p = ui.painter().clone();
 
             for proj in &projects {
-                let (row_r, resp) = ui.allocate_exact_size(Vec2::new(row_w, ROW_H), Sense::click());
+                let (row_r, resp) = ui.allocate_exact_size(Vec2::new(row_w, PROJECT_ROW_H), Sense::click());
                 let inner = row_r.shrink2(Vec2::new(SIDE_MARGIN, 0.0));
                 // The arrow sits on top of the row (created later, it gets the click).
                 let has_folder = !proj.path.as_os_str().is_empty();
                 let can_expand = (proj.active && has_folder) || !proj.agents.is_empty();
-                let chev_r = Rect::from_min_size(inner.min, Vec2::new(20.0, ROW_H));
+                let chev_r = Rect::from_min_size(inner.min, Vec2::new(20.0, PROJECT_ROW_H));
                 let chev_resp = can_expand.then(|| ui.interact(chev_r, Id::new(("proj-chevron", &proj.id)), Sense::click()));
                 let chev_hov = chev_resp.as_ref().is_some_and(|r| r.hovered()) && !dragging;
                 let hovered = (resp.hovered() || chev_hov) && !dragging;
@@ -527,8 +549,11 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                     }
                 }
 
-                // Project name (with ellipsis so it does not touch what is on the right)
-                let name_x = inner.min.x + 6.0 + 9.0 + 6.0;
+                // Folder glyph (12 px, `text_3`) then the project name; on the right, for the active project, the
+                // branch and the changed files ("dev · 3M") in meta(10) `text_3`, cut before the name is.
+                let folder_c = Pos2::new(inner.min.x + 24.5, row_r.center().y);
+                paint_folder_icon(&p, folder_c, theme::pal().text_3);
+                let name_x = inner.min.x + 37.0;
                 let name_color = if !can_expand && !proj.active {
                     theme::pal().text_3
                 } else if proj.active || hovered {
@@ -536,7 +561,24 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                 } else {
                     theme::pal().text_2
                 };
-                let name_g = galley_trunc(&p, &proj.name, theme::ui_semibold(12.0), name_color, (right - name_x).max(1.0));
+                let name_font = theme::ui_semibold(12.0);
+                let name_w = galley(&p, &proj.name, name_font.clone(), name_color).size().x;
+                if let Some(meta) = git_meta.as_ref().filter(|_| proj.active && right >= inner.max.x - 6.0) {
+                    let room = right - name_x - name_w.min((right - name_x).max(1.0)) - GAP;
+                    if room >= META_MIN_W {
+                        let g = galley_trunc(&p, meta, theme::meta(10.0), theme::pal().text_3, room);
+                        let w = g.size().x;
+                        place(
+                            &p,
+                            Rect::from_min_max(Pos2::new(right - w, row_r.min.y), Pos2::new(right, row_r.max.y)),
+                            Align2::LEFT_CENTER,
+                            g,
+                            theme::pal().text_3,
+                        );
+                        right -= w + GAP;
+                    }
+                }
+                let name_g = galley_trunc(&p, &proj.name, name_font, name_color, (right - name_x).max(1.0));
                 place(
                     &p,
                     Rect::from_min_max(Pos2::new(name_x, row_r.min.y), Pos2::new(right, row_r.max.y)),
@@ -1045,11 +1087,13 @@ mod tests {
     #[test]
     fn the_list_height_counts_agents_and_the_new_agent() {
         // Closed: only the project row.
-        assert_eq!(list_height(&[view(3, false, true)]), ROW_H);
+        assert_eq!(list_height(&[view(3, false, true)]), PROJECT_ROW_H);
         // Open and active: project + 3 agents + "+ New agent".
-        assert_eq!(list_height(&[view(3, true, true)]), ROW_H + 3.0 * AGENT_ROW_H + ROW_H);
+        assert_eq!(list_height(&[view(3, true, true)]), PROJECT_ROW_H + 3.0 * AGENT_ROW_H + ROW_H);
         // Open and inactive: without the "+ New agent".
-        assert_eq!(list_height(&[view(2, true, false), view(0, false, false)]), ROW_H + 2.0 * AGENT_ROW_H + ROW_H);
+        assert_eq!(list_height(&[view(2, true, false), view(0, false, false)]), 2.0 * PROJECT_ROW_H + 2.0 * AGENT_ROW_H);
+        // A project row is as tall as an agent row.
+        assert_eq!(PROJECT_ROW_H, AGENT_ROW_H);
         assert_eq!(list_height(&[]), 0.0);
     }
 
@@ -1146,6 +1190,23 @@ mod tests {
         a1.tab = Some(0);
         let s_active = project_state_summary(std::slice::from_ref(&a1), true, Some(0));
         assert_eq!(s_active.done, 0);
+    }
+
+    #[test]
+    fn the_branch_and_changed_files_read_like_dev_3m() {
+        assert_eq!(git_meta_label("dev", 3), "dev · 3M");
+        assert_eq!(git_meta_label("dev", 0), "dev");
+    }
+
+    #[test]
+    fn idle_under_a_minute_shows_nothing() {
+        let mut a = ag("a", None);
+        a.status = Some("idle <1 min".into());
+        assert_eq!(agent_state_tail(&a, false, false), None);
+        a.status = Some("ocioso <1 min".into());
+        assert_eq!(agent_state_tail(&a, false, false), None);
+        a.status = Some("idle 1 min".into());
+        assert_eq!(agent_state_tail(&a, false, false), Some(("1m".into(), TailKind::Idle)));
     }
 
     #[test]
