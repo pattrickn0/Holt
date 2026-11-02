@@ -195,11 +195,7 @@ fn draw(ui: &mut Ui, body: Rect, uid: u64, chat: &mut ChatTab, icons: &mut IconC
         chat.heights.clear();
         chat.heights_width = col_w;
     }
-    let icon = match who.kind {
-        "antigravity" => Icon::AntigravityLogo,
-        "codex" => Icon::CodexLogo,
-        _ => Icon::ClaudeLogo,
-    };
+    let icon = super::projects::chat_icon(who.kind);
     let empty = chat.transcript.items.is_empty();
     if empty {
         empty_state(&painter, view, label, alive);
@@ -1000,6 +996,10 @@ fn tool_rows(call: &ToolCall) -> Vec<Row> {
     match call.name.as_str() {
         // The result's patch has the context and the line numbers; before it arrives, what the call says.
         "Edit" | "MultiEdit" if !patch.is_empty() => rows.extend(patch),
+        // An agent that reports the change as a unified diff (Codex, ACP) and has no result patch yet.
+        "Edit" if input.get("diff").and_then(Value::as_str).is_some_and(|d| !d.is_empty()) => {
+            rows.extend(patch_rows(&holt_core::chat::patch_from_diff(str_field(input, "diff"))));
+        }
         "Edit" => {
             rows.extend(rows_of(RowKind::Del, str_field(input, "old_string")));
             rows.extend(rows_of(RowKind::Add, str_field(input, "new_string")));
@@ -1336,6 +1336,16 @@ mod tests {
             input,
             outcome: out.map(|(text, is_error)| ToolOutcome { tool_use_id: "t1".into(), text: text.into(), is_error, patch: vec![] }),
         }
+    }
+
+    #[test]
+    fn an_edit_with_a_unified_diff_shows_it_on_the_card_before_any_result() {
+        let c = call("Edit", json!({ "file_path": "a.rs", "diff": "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three" }), None);
+        let rows = tool_rows(&c);
+        let kinds: Vec<RowKind> = rows.iter().map(|r| r.kind).collect();
+        assert_eq!(kinds, [RowKind::Context, RowKind::Del, RowKind::Add, RowKind::Context]);
+        assert_eq!(rows[1].text, "two");
+        assert_eq!(rows[1].no, Some(2));
     }
 
     #[test]

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use egui::Color32;
-use holt_core::agents::{COLOR_ANTIGRAVITY, COLOR_CLAUDE, COLOR_CODEX, COLOR_SHELL};
+use holt_core::agents::{COLOR_ANTIGRAVITY, COLOR_CLAUDE, COLOR_CODEX, COLOR_GEMINI, COLOR_QWEN, COLOR_SHELL};
 use holt_core::{t, AgentInfo};
 
 use crate::theme;
@@ -94,6 +94,8 @@ impl Agents {
                 "claude" => COLOR_CLAUDE,
                 "antigravity" => COLOR_ANTIGRAVITY,
                 "codex" => COLOR_CODEX,
+                "gemini" => COLOR_GEMINI,
+                "qwen" => COLOR_QWEN,
                 _ => COLOR_SHELL,
             };
             theme::parse_hex_color(hex).unwrap_or(theme::SHELL)

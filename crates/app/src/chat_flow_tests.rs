@@ -421,3 +421,222 @@ fn a_codex_tab_goes_to_the_terminal_and_back_on_the_same_conversation() {
     assert!(matches!(&items[0], Item::User { text, .. } if text == "prior question"));
     assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some(session), "same conversation");
 }
+
+// ---------- A CLI that speaks ACP (here "goose"), through the generic backend ----------
+
+/// A shell ACP agent: `acp` as its first argument starts the protocol; any other launch (the terminal view) just waits.
+/// The ids of Holt's requests are answered as they come. `need-permission` asks and appends the answer it got to
+/// `answers.txt`; `slow` waits for `session/cancel`; `crash` exits with code 3 in the middle of the turn; the log of
+/// everything received is `acp.log`.
+const FAKE_ACP: &str = r#"#!/bin/sh
+if [ "$1" != "acp" ]; then
+  while IFS= read -r line; do :; done
+  exit 0
+fi
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> acp.log
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *\"method\":\"initialize\"*)
+      echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true},\"authMethods\":[]}}"
+      ;;
+    *\"method\":\"session/new\"*)
+      echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"sessionId\":\"acp-sess-1\"}}"
+      ;;
+    *\"method\":\"session/load\"*)
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"prior question"}}}}'
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"prior answer"}}}}'
+      echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":null}"
+      ;;
+    *\"method\":\"session/prompt\"*)
+      case "$line" in
+        *need-permission*)
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"tool_call","toolCallId":"c1","title":"touch x","kind":"execute","status":"pending","rawInput":{"command":"touch x"}}}}'
+          echo '{"jsonrpc":"2.0","id":50,"method":"session/request_permission","params":{"sessionId":"acp-sess-1","toolCall":{"toolCallId":"c1","title":"touch x","kind":"execute","rawInput":{"command":"touch x"}},"options":[{"optionId":"once","name":"Allow once","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Reject","kind":"reject_once"}]}}'
+          IFS= read -r answer
+          printf '%s\n' "$answer" >> answers.txt
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed"}}}'
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"permission handled"}}}}'
+          ;;
+        *slow*)
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"tool_call","toolCallId":"c2","title":"sleep 60","kind":"execute","status":"in_progress","rawInput":{"command":"sleep 60"}}}}'
+          while IFS= read -r next; do
+            printf '%s\n' "$next" >> acp.log
+            case "$next" in *session/cancel*) break ;; esac
+          done
+          echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"stopReason\":\"cancelled\"}}"
+          continue
+          ;;
+        *crash*)
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"about to fail"}}}}'
+          exit 3
+          ;;
+        *)
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello from acp"}}}}'
+          ;;
+      esac
+      echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"stopReason\":\"end_turn\"}}"
+      ;;
+  esac
+done
+"#;
+
+fn env_with_acp_chat_agent() -> Env {
+    let mut env = Env::start_with(true);
+    let script = env.ws.parent().expect("root").join("fake-bin").join("goose");
+    std::fs::write(&script, FAKE_ACP).expect("write");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    env.pump("the agent list", |d| d.agents.knows("goose"));
+    env.deck.open_tab("goose", false);
+    env.pump("the chat tab to be running", |d| d.tabs.first().is_some_and(|t| t.alive));
+    env
+}
+
+fn acp_answers(env: &Env) -> Vec<Value> {
+    std::fs::read_to_string(env.ws.join("answers.txt")).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+}
+
+fn send(env: &mut Env, text: &str) {
+    env.deck.tabs[0].chat.as_mut().expect("chat").composer = text.into();
+    env.deck.chat_submit(0);
+}
+
+#[test]
+fn an_acp_tab_opens_in_the_chat_view_and_the_conversation_id_is_saved_when_the_agent_names_it() {
+    let mut env = env_with_acp_chat_agent();
+    let tab = &env.deck.tabs[0];
+    assert!(tab.chat.is_some(), "chat is the default view of an ACP agent");
+    assert_eq!(tab.spec.as_ref().expect("spec").args, ["acp"]);
+    let id = tab.ident.id();
+    send(&mut env, "hello");
+    env.pump("the answer", |d| !d.tabs[0].busy && d.tabs[0].idle_since.is_some());
+    let items = items(&env);
+    assert!(matches!(&items[0], Item::User { text, .. } if text == "hello"));
+    assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "hello from acp"), "{items:?}");
+    assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some("acp-sess-1"), "saved from session/new");
+}
+
+#[test]
+fn an_acp_question_from_another_agent_becomes_a_message_of_the_conversation() {
+    let mut env = env_with_acp_chat_agent();
+    let prompt = "[Message from the agent \"claude@dev\" received by Holt]\n\nCan you help?\n\nAnswer by running in the shell: ask-agent --reply 9 \"your answer\"";
+    env.deck.send_to_instance(&Ident::main("goose"), false, prompt.to_owned()).expect("queued");
+    env.pump("the answer", |d| {
+        d.tabs[0]
+            .chat
+            .as_ref()
+            .is_some_and(|c| c.transcript.items.iter().any(|i| matches!(i, Item::Assistant { text, .. } if text == "hello from acp")))
+    });
+    let items = items(&env);
+    assert!(matches!(&items[0], Item::User { text, from: Some(who) } if text == "Can you help?" && who == "claude@dev"), "{items:?}");
+    env.pump("the turn to end", |d| !d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.busy()) && !d.tabs[0].busy);
+}
+
+#[test]
+fn acp_permission_cards_wait_for_the_user_and_each_answer_reaches_the_agent_as_its_option() {
+    let mut env = env_with_acp_chat_agent();
+    assert_eq!(env.deck.tabs[0].phase, None);
+    for (allow, for_session, option) in [(true, false, "once"), (true, true, "always"), (false, false, "no")] {
+        send(&mut env, "need-permission please");
+        assert!(env.deck.tabs[0].busy, "sending a message starts a turn");
+        env.pump("the permission card", |d| d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.waiting_for_permission()));
+        assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::WaitingForYou));
+        assert_eq!(env.deck.tabs[0].status_label(std::time::Instant::now()).as_deref(), Some("waiting for you"));
+        let card = env.deck.tabs[0].chat.as_ref().expect("chat").transcript.pending_permission().expect("card").clone();
+        assert_eq!((card.request_id.as_str(), card.tool.as_str(), card.input["command"].as_str()), ("50", "Bash", Some("touch x")));
+        assert_eq!(card.suggestions.len(), 1, "the agent offers allow_always: the session button is there");
+        env.deck.chat_answer(0, "50", allow, for_session);
+        env.pump("the end of the turn", |d| !d.tabs[0].busy);
+        assert_eq!(env.deck.tabs[0].phase, None, "phase clears when the turn ends");
+        assert!(env.deck.tabs[0].idle_since.is_some());
+        assert_eq!(env.deck.tabs[0].status_label(std::time::Instant::now()).as_deref(), Some("idle <1 min"));
+        let answers = acp_answers(&env);
+        let last = answers.last().expect("an answer");
+        assert_eq!(last["id"], 50);
+        assert_eq!(last["result"]["outcome"]["outcome"], "selected");
+        assert_eq!(last["result"]["outcome"]["optionId"], option);
+        assert!(!env.deck.tabs[0].chat.as_ref().expect("chat").transcript.waiting_for_permission());
+    }
+    assert_eq!(acp_answers(&env).len(), 3);
+}
+
+#[test]
+fn interrupting_an_acp_turn_cancels_the_session_and_the_tab_goes_idle() {
+    let mut env = env_with_acp_chat_agent();
+    send(&mut env, "do something slow");
+    env.pump("the running call", |d| d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.iter().any(|i| matches!(i, Item::Tool(_)))));
+    assert!(env.deck.tabs[0].busy);
+    assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::RunningCommand));
+    env.deck.chat_interrupt(0);
+    env.pump("the end of the turn", |d| !d.tabs[0].busy);
+    let items = items(&env);
+    assert!(items.iter().any(|i| matches!(i, Item::Notice { text, .. } if text == "Interrupted.")), "{items:?}");
+    assert!(!env.deck.tabs[0].chat.as_ref().expect("chat").transcript.busy());
+    assert_eq!(env.deck.tabs[0].phase, None);
+    assert!(env.deck.tabs[0].idle_since.is_some());
+    let log = std::fs::read_to_string(env.ws.join("acp.log")).expect("log");
+    assert!(log.contains("\"method\":\"session/cancel\""), "{log}");
+}
+
+#[test]
+fn an_acp_process_that_dies_is_reported_and_start_resumes_the_same_conversation() {
+    let mut env = env_with_acp_chat_agent();
+    send(&mut env, "hello");
+    env.pump("the first answer", |d| !d.tabs[0].busy && d.tabs[0].idle_since.is_some());
+    send(&mut env, "crash please");
+    env.pump("the process to end", |d| !d.tabs[0].alive);
+    let items = items(&env);
+    assert!(matches!(items.last(), Some(Item::Notice { text, error: true }) if text.contains("code 3")), "{items:?}");
+    assert!(!env.deck.tabs[0].chat.as_ref().expect("chat").transcript.busy());
+    let before = items.len();
+
+    // "Restart": the new process loads the conversation by its id; what the view already shows is not repeated.
+    env.deck.start(0);
+    env.pump("the process to be running again", |d| d.tabs[0].alive);
+    assert_eq!(env.deck.tabs[0].spec.as_ref().expect("spec").session.as_deref(), Some("acp-sess-1"));
+    send(&mut env, "and now");
+    env.pump("the answer", |d| !d.tabs[0].busy && d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.len() > before));
+    let log = std::fs::read_to_string(env.ws.join("acp.log")).expect("log");
+    assert!(log.contains("\"method\":\"session/load\"") && log.contains("\"sessionId\":\"acp-sess-1\""), "{log}");
+    let after = self::items(&env);
+    assert_eq!(after.iter().filter(|i| matches!(i, Item::User { text, .. } if text == "prior question")).count(), 0, "{after:?}");
+}
+
+#[test]
+fn an_acp_tab_goes_to_the_terminal_and_back_and_the_conversation_is_loaded_from_the_agent() {
+    let mut env = env_with_acp_chat_agent();
+    let id = env.deck.tabs[0].ident.id();
+    send(&mut env, "hello");
+    env.pump("the first answer", |d| !d.tabs[0].busy && d.tabs[0].idle_since.is_some());
+    assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some("acp-sess-1"));
+
+    env.deck.set_tab_view(0, false);
+    assert!(env.deck.tabs[0].chat.is_none() && env.deck.tabs[0].alive);
+    let spec = env.deck.tabs[0].spec.as_ref().expect("spec");
+    assert!(!spec.args.iter().any(|a| a == "acp"), "the terminal launch does not start the protocol: {:?}", spec.args);
+    assert!(!spec.resumed, "a terminal launch that carries no session id is not a resume");
+    assert!(!env.core.tab_is_chat(&env.project(), &env.deck.tabs[0].ident), "the choice is remembered");
+
+    env.deck.set_tab_view(0, true);
+    env.pump("the history", |d| d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.len() >= 2));
+    let spec = env.deck.tabs[0].spec.as_ref().expect("spec");
+    assert_eq!((spec.args.as_slice(), spec.session.as_deref()), (&["acp".to_owned()][..], Some("acp-sess-1")));
+    let items = items(&env);
+    assert_eq!(items.len(), 2, "the conversation comes back from session/load: {items:?}");
+    assert!(matches!(&items[0], Item::User { text, .. } if text == "prior question"));
+    assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "prior answer"));
+    assert_eq!(env.core.tab_session(&env.project(), &id).as_deref(), Some("acp-sess-1"), "same conversation");
+}
+
+#[test]
+fn the_model_and_effort_pickers_do_not_apply_to_an_acp_agent_that_has_none() {
+    let mut env = env_with_acp_chat_agent();
+    let spawned = env.deck.tabs[0].spawned_at;
+    env.deck.chat_set_model(0, Some("some-model"));
+    env.deck.chat_set_effort(0, Some(holt_core::models::Effort::High));
+    assert_eq!(env.deck.tabs[0].spawned_at, spawned, "nothing was restarted");
+    let notices = items(&env).into_iter().filter(|i| matches!(i, Item::Notice { error: true, .. })).count();
+    assert_eq!(notices, 2, "{:?}", items(&env));
+    assert!(holt_core::models::effort_unavailable("goose", None).is_some());
+    assert!(!holt_core::models::has_model_list("goose"));
+}
