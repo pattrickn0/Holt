@@ -28,12 +28,23 @@ Decisions the user already made (do not reopen unless they ask):
 - "+ New agent" lives **inside** the active project, at the end of its agent list (a drawn 12 px `+` at `x = 30`, aligned
   with the agent logos, followed by `"New agent"`); the "+" of the PROJECTS header creates a project (tooltip `"New project"`).
   No loose "+" in the title bar.
-- Window organization (`Tabs | Split | Highlight`) lives in the **title bar**, right side, left of the subscription usage
-  meter: a 3-segment icon switch (`70×22` `recess` track, corners 6, segments corners 4, active segment in `selected` with
-  `text_strong` icon, not accent — a setting, not a state). Below `860 px` window width (or when `< 70 px` horizontal room
-  remains left of the usage meter) it compacts to a single `26×24` cycle button (`org_switch_mode`), and hides when `< 26 px`
-  remains. The window of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at 62%
+- Window organization (`Tabs | Split | Highlight`) lives in the **title bar** and is a real control, not decoration: a
+  `96×24` `recess` track (corners 6) with three `30×20` segments (corners 4, 2 px inset) and `16×11` glyphs (stroke 1.4);
+  idle `text_2`, hover `hover` + `text`, active `selected` + `text_strong`, not accent — a setting, not a state. Its
+  **right edge is anchored to the center island's right edge** (it sits above the area it rearranges); when that leaves
+  `< 16 px` to the usage meter it goes left of the meter with a 1 px, 16 px tall separator and 10 px gaps
+  (`titlebar::org_switch_layout`, pure and tested). The active mode's name (`"Split"`, `ui(11.5)` `text_3`) shows left
+  of the track and hides first when room runs out. Below `860 px` window width (or `< 96 px` free) it compacts to a
+  single `26×24` cycle button (`org_switch_mode`), hidden when `< 26 px`. Tooltips say the effect (`"Split: windows side
+  by side"`). Second entry point: the **LAYOUT** section at the top of the ☰ menu (three rows, a check on the current
+  one). The window of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at 62%
   (`theme::PANE_*`). Footer with shortcuts: not for now.
+- FILES header: only **filter** and **changed only** are always visible (toggles with a lit state); **collapse all**
+  fades in (~120 ms) while the pointer is over the FILES area, and **refresh** lives only in the header's right-click
+  menu (the tree already refreshes from the watcher). A project without a folder shows no header actions at all (no dead
+  greyed glyphs). Do not bring back a fourth always-visible button.
+- A project without a folder says so in the center too: `"<project> has no folder"` with the same `"Open folder…"` action,
+  never `"No project open"` while the sidebar shows an active project.
 
 ## Text and language
 
@@ -102,8 +113,10 @@ to the system font.
   header + 3 file rows below; when the tree is shorter than the cap, FILES rises right under it with no empty band), and
   FILES (24 px header; clicking collapses/expands, and when collapsed the header stays pinned at the bottom of the
   sidebar). Separators as wide as the island.
-- Sidebar rows have a 4 px margin (the selection does not touch the edge): project 22 px (▾/▸ always present and greyed
-  in `text_faint` when the project has no folder/agents; name in 600; no agent count; when collapsed, a state summary on
+- Sidebar rows have a 4 px margin (the selection does not touch the edge): project **24 px** (`PROJECT_ROW_H`, the same as an
+  agent row; ▾/▸ always present and greyed in `text_faint` when the project has no folder/agents; a 12 px folder glyph in
+  `text_3` before the name (600); the active project shows `"<branch> · <N>M"` on the right in `meta(10)` `text_3`, a long
+  branch cut with an ellipsis but the count kept, all dropped before the name is cut; no agent count; when collapsed, a state summary on
   the right as **glyphs + numbers** in `meta(10)` `text_3`: pulsing dot in the agent's colour + count working, unseen ring
   + count finished, nothing when all idle; inactive projects start collapsed, expanded/collapsed persists per project, and
   clicking an inactive project's name activates and expands it), **agent 24 px** (`AGENT_ROW_H`), "+ New agent" 22 px
@@ -112,21 +125,26 @@ to the system font.
   **without the CLI prefix** (`"Dev"`, `"Review"`; a plain instance shows the CLI name, e.g. `"Claude"`) in Inter
   12 px/500 (600 if selected) 7 px after the box, and a **state tail** on the right in `meta(10)`: working = phase
   (`"editing"`, `"testing"`) in `text_2`; finished unseen = `"done"` / `"feito"` in accent; idle = compact idle time
-  (`"12m"` / `"12min"`) in `text_3`; hovering the row shows the shortened model tag (`projects::model_tag`) in `text_3`
+  (`"12m"` / `"12min"`) in `text_3`, **nothing under 1 minute** (`"<1m"` is noise); hovering the row shows the shortened model tag (`projects::model_tag`) in `text_3`
   (the full model is in the tooltip). The right-hand tail is cut with an ellipsis before the name is cut, nothing wraps.
   Selected: `accent_soft` + 2 px stripe in the accent color, name `text_strong`.
 - Explorer (`FILES`): 24 px header with `"FILES"`, `"<project> · <branch>"` in `meta(10)` `text_3` with ellipsis (hidden
-  when `< 24 px` room remains), and four 20×20 icon buttons: filter, **changed only** (files with a git letter),
-  collapse-all, refresh (dropping collapse-all then refresh at narrow widths). Filter opens a 24 px `recess` field
+  when `< 24 px` room remains; replaced by `"N changed"` in `meta(10)` `text_2` while changed-only is on) and the buttons:
+  `22×22` hit area, corners 5, 2 px apart, the last one 6 px from the island edge, one **12 px glyph box with stroke
+  1.3** for all (filter, `±` for changed only, collapse-all); idle `text_3`, hover `hover` + `text`, lit `selected` +
+  `text_strong`. Filter opens a 24 px `recess` field
   (corners 6, `Esc` or `×` closes) and flattens matching files to single-line rows (`name` + `parent_dir` in `meta(10)`
   `text_3` + git letter). Normal tree: 12 px indent, extension icons in `text_3`, Git letter (M, A, ?, D, R, U) in
-  `meta(10)` `text_2`; selected `selected_soft`, hover `hover`. Empty state when a project has no folder:
-  `"This project has no folder"` + Ghost `"Open folder…"`.
+  `meta(10)` `text_2`; selected `selected_soft`, hover `hover`. Empty state when a project has no folder: block starts
+  16 px under the header, `"This project has no folder"` in `ui(12)` `text_2` (wraps, centered), then 10 px under it a
+  Secondary `folder_button` (26 px, 12 px folder glyph + `"Open folder…"`). Debug states: `sidebar-hover` (shows the
+  collapse-all button), `sidebar-changed`, `sidebar-empty`, `sidebar-filter`.
 - Tabs (`ui/tabs.rs`): 30 px strip (`HEAD_H`), 22 px pills, corners 5, 3 px between them, padding 8; active in the
   agent's color, text `on_accent` 600 and a light shadow; without window or document focus, the active one is `selected`
   + `text_strong`; 7 px dot (halo working, 1.5 px ring finished unseen, 40% with no process); the ✕ is drawn (Inter does
   not have it). `StripKind::colored` picks between agent and document.
-- Icon buttons: in the title bar 26×24, corners 5; in headers 20×20, corners 4; hover `hover`.
+- Icon buttons: in the title bar 26×24, corners 5; in the PROJECTS header 20×20, corners 4; in the FILES header 22×22,
+  corners 5; hover `hover`.
 - Pane header, view switch (`panes::view_switch`): for the tabs that have a chat view, a 48×22 `recess` track (corners 6) with two
   icon segments (`Icon::ChatBubble`, `Icon::Terminal`, 13 px); the active segment is filled with the tab agent's colour and
   its icon is `on_accent`; the other is `text_2` (`text` and `hover` on hover). The tooltips are "Chat view" / "Terminal view".
@@ -195,10 +213,13 @@ Build and run in a separate data folder (the user's is in use), with the fake pr
 ```sh
 cargo build -p holt
 HOLT_HOME=<scratch>/home HOLT_SMOKE=<scratch>/shot HOLT_DEBUG_UI=projects-demo \
-  ./target/debug/holt.exe        # saves <scratch>/shot/screen.png and exits
+  ./target/debug/holt.exe        # saves <scratch>/shot/screen.png and exits (Linux/Wayland: prefix
+                                 # `WAYLAND_DISPLAY= WINIT_UNIX_BACKEND=x11` or the window never draws)
 ```
 
-For Portuguese, write `{"language": "pt-BR"}` to `<scratch>/home/cfg/config.json` before running. Other states in
+Check with `projects-demo` **and** with a scratch `HOLT_HOME` whose `config.json` opens this repository as the only
+project (`projectList` with one `{id, name, path, openTabs}` and `activeProject`): that is what a real user sees and
+the demo hides (no agents, a real branch, a long task branch name). For Portuguese, write `{"language": "pt-BR"}` to `<scratch>/home/cfg/config.json` before running. Other states in
 `HOLT_DEBUG_UI` (list in `debug_ui::apply`, `crates/app/src/debug_ui.rs`): `settings`, `newtab`, `usage-demo`,
 `git-demo`, `split-drag`, `tasks-demo`, `tasks-detail`, `tasks-conflict`, `tasks-stopped`, `tasks-messages`,
 `tasks-validating`, `tasks-new`, `notices`, `notices-open`, `branch:<name>`... For the README screenshot
