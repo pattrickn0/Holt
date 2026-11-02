@@ -100,7 +100,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui) {
     }
 
     // ---------- Title bar ----------
-    let menus = titlebar::draw(deck, ui, titlebar);
+    let menus = titlebar::draw(deck, ui, titlebar, center.max.x);
 
     // ---------- Splitters (last in the background: they get the click in the gap between the islands) ----------
     if !collapsed {
@@ -483,6 +483,33 @@ pub fn button_danger(ui: &Ui, rect: Rect, id: Id, label: &str) -> Response {
 pub fn button_width(painter: &Painter, label: &str, kind: ButtonKind) -> f32 {
     let font = if kind == ButtonKind::Primary { theme::ui_semibold(11.5) } else { theme::ui(11.5) };
     text_w(painter, label, font) + 20.0
+}
+
+/// 12 px folder glyph (an outline with a tab on the top left), stroke 1.3.
+pub fn paint_folder_icon(painter: &Painter, center: Pos2, color: Color32) {
+    let pts = [(-5.5, -4.5), (-1.5, -4.5), (0.0, -3.0), (5.5, -3.0), (5.5, 4.5), (-5.5, 4.5)];
+    let points = pts.iter().map(|&(x, y)| center + Vec2::new(x, y)).collect();
+    painter.add(egui::Shape::closed_line(points, Stroke::new(1.3, color)));
+}
+
+/// Height of [`folder_button`].
+pub const FOLDER_BUTTON_H: f32 = 26.0;
+
+/// Width of a [`folder_button`] with `label`: 12 px glyph, 6 px, the text, 12 px padding on each side.
+pub fn folder_button_width(painter: &Painter, label: &str) -> f32 {
+    12.0 + 6.0 + text_w(painter, label, theme::ui(11.5)) + 24.0
+}
+
+/// Secondary button with the folder glyph before the label ("Open folder…"). Returns the response.
+pub fn folder_button(ui: &Ui, rect: Rect, id: Id, label: &str) -> Response {
+    let r = button(ui, rect, id, "", ButtonKind::Secondary);
+    let painter = ui.painter();
+    let w = text_w(painter, label, theme::ui(11.5));
+    let x0 = rect.center().x - (12.0 + 6.0 + w) / 2.0;
+    paint_folder_icon(painter, Pos2::new(x0 + 6.0, rect.center().y), theme::pal().text_2);
+    let text_r = Rect::from_min_max(Pos2::new(x0 + 18.0, rect.min.y), Pos2::new(rect.max.x, rect.max.y));
+    text_in(painter, text_r, Align2::LEFT_CENTER, label, theme::ui(11.5), theme::pal().text);
+    r
 }
 
 /// How a row of pill tabs fits in `avail` px: the inner space of each tab (summed on both sides) and the

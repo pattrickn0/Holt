@@ -3,7 +3,7 @@
 use egui::{Align2, Area, Color32, Id, Key, Order, Pos2, Rect, Sense, Stroke, Vec2};
 
 use holt_core::i18n::{self, Lang};
-use holt_core::{models, t};
+use holt_core::{models, t, Organization};
 
 use super::{button, button_danger, button_width, dot, frame, section_label, separator, shadow, text_in, text_w, ButtonKind};
 use crate::deck::Deck;
@@ -379,10 +379,14 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
     // translate switch and a hint.
     let chip_h = 24.0;
     let dict_h = 13.0 + title_h + chip_h * 3.0 + 4.0 + item_h + 36.0;
-    let h = 6.0 + title_h + 2.0 + item_h * 4.0 + dict_h + 13.0 + btn_h + 13.0 + item_h + btn_h + 8.0;
+    // The Layout section (window organization) sits on top: label, three rows and a separator.
+    let layout_h = title_h + 2.0 + item_h * 3.0 + 13.0;
+    let h = 6.0 + layout_h + title_h + 2.0 + item_h * 4.0 + dict_h + 13.0 + btn_h + 13.0 + item_h + btn_h + 8.0;
     // The ☰ button sits in the left corner of the title bar: the menu opens aligned with it.
     let pos = keep_on_screen(ctx, Pos2::new(anchor.min.x + 4.0, anchor.max.y), Vec2::new(w, h));
     let menu_rect = Rect::from_min_size(pos, Vec2::new(w, h));
+    let mut layout = None;
+    let current_org = deck.organization;
     let mut toggle = false;
     let mut toggle_tabs = false;
     let mut toggle_keys = false;
@@ -409,10 +413,42 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         shadow(p, rect, 8, 8, 24, pal.shadow);
         frame(p, rect, 8.0, pal.popup, pal.glass_border);
         let inner = rect.shrink2(Vec2::new(6.0, 6.0));
-        section_label(p, Rect::from_min_size(Pos2::new(rect.min.x, inner.min.y), Vec2::new(rect.width(), title_h)), t!("SETTINGS"));
+        // Layout: how the windows of the project are arranged (the same choice as the title bar switch).
+        section_label(p, Rect::from_min_size(Pos2::new(rect.min.x, inner.min.y), Vec2::new(rect.width(), title_h)), t!("LAYOUT"));
+        for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {
+            let row = Rect::from_min_size(
+                Pos2::new(inner.min.x, inner.min.y + title_h + 2.0 + item_h * i as f32),
+                Vec2::new(inner.width(), item_h),
+            );
+            let r = super::clickable(ui, row, Id::new(("setting-layout", i)));
+            if r.hovered() {
+                p.rect_filled(row, 5.0, pal.hover);
+            }
+            let on = org == current_org;
+            text_in(
+                p,
+                row.shrink2(Vec2::new(8.0, 0.0)),
+                Align2::LEFT_CENTER,
+                super::titlebar::org_name(org),
+                theme::ui(12.0),
+                if on { pal.text_strong } else { pal.text },
+            );
+            if on {
+                let c = Pos2::new(row.max.x - 15.0, row.center().y);
+                let s = Stroke::new(1.5, pal.text_strong);
+                p.line_segment([c + Vec2::new(-4.0, 0.5), c + Vec2::new(-1.5, 3.0)], s);
+                p.line_segment([c + Vec2::new(-1.5, 3.0), c + Vec2::new(4.0, -3.0)], s);
+            }
+            if super::tip(r, super::titlebar::org_effect(org)).clicked() {
+                layout = Some(org);
+            }
+        }
+        let after_layout = inner.min.y + layout_h;
+        separator(p, Pos2::new(inner.min.x + 4.0, after_layout - 6.5), Pos2::new(inner.max.x - 4.0, after_layout - 6.5));
+        section_label(p, Rect::from_min_size(Pos2::new(rect.min.x, after_layout), Vec2::new(rect.width(), title_h)), t!("SETTINGS"));
 
         // Item 1: notification sounds
-        let item = Rect::from_min_size(Pos2::new(inner.min.x, inner.min.y + title_h + 2.0), Vec2::new(inner.width(), item_h));
+        let item = Rect::from_min_size(Pos2::new(inner.min.x, after_layout + title_h + 2.0), Vec2::new(inner.width(), item_h));
         let r = super::clickable(ui, item, Id::new("setting-sound"));
         if r.hovered() {
             p.rect_filled(item, 5.0, pal.hover);
@@ -570,6 +606,9 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
             }
         }
     });
+    if let Some(org) = layout {
+        deck.set_organization(org);
+    }
     if toggle {
         deck.sound_enabled = !deck.sound_enabled;
         let v = deck.sound_enabled;

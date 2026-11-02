@@ -11,6 +11,8 @@ use holt_core::t;
 
 /// "Open folder…" button of the card shown without a project (an internal marker, not user-facing).
 const NEW_PROJECT: &str = "#new-project";
+/// "Open folder…" of the card shown when the active project has no folder: it picks one for that project.
+const PICK_FOLDER: &str = "#pick-folder";
 
 /// Marker the empty-state sentence uses to point at the bold piece (a character the text never has).
 const MARKER: &str = "\u{1}";
@@ -19,15 +21,24 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     let painter = ui.painter_at(rect);
 
     // Without a project there is nowhere to open an agent: the card asks for a folder.
-    let no_project = deck.active_project.is_empty();
-    let title = if no_project { t!("No project open") } else { t!("No agent open") };
-    let title = galley(&painter, title, theme::ui_semibold(16.0), theme::pal().text);
+    // A project that is active in the sidebar but has no folder (yet) asks for one for itself.
+    let folderless = deck.project_views().into_iter().find(|v| v.active).filter(|_| !deck.has_folder()).map(|v| v.name);
+    let no_project = folderless.is_none() && deck.active_project.is_empty();
+    let needs_folder = no_project || folderless.is_some();
+    let title = match &folderless {
+        Some(name) => t!("{project} has no folder", project = name.as_str()),
+        None if no_project => t!("No project open").to_owned(),
+        None => t!("No agent open").to_owned(),
+    };
+    let title = galley(&painter, &title, theme::ui_semibold(16.0), theme::pal().text);
     // <p> with the "+ New agent" in bold, wrapping up to 420px (less in a narrow window).
     let mut job = LayoutJob::default();
     job.wrap.max_width = 420.0f32.min(rect.width() - 48.0).max(120.0);
     job.halign = egui::Align::Center;
     let fmt = TextFormat { font_id: theme::ui(13.0), color: theme::pal().text_2, line_height: Some(13.0 * 1.5), ..Default::default() };
-    if no_project {
+    if folderless.is_some() {
+        job.append(t!("Choose a folder for this project: its agents work there."), 0.0, fmt);
+    } else if no_project {
         job.append(t!("Open a folder as a project: each project has its own agents."), 0.0, fmt);
     } else {
         // With the sidebar collapsed the "+ New agent" row is not in sight: the shortcut is Ctrl+T.
@@ -45,15 +56,17 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     let para = painter.layout_job(job);
 
     // Buttons (.empty-agent-btn): padding 7px 14px, 12px/500, gap 10px, line wrapping.
-    let items = if no_project {
-        vec![crate::agents::MenuItem { kind: NEW_PROJECT.into(), label: t!("Open folder…").into(), color: theme::pal().text_2 }]
+    let items = if needs_folder {
+        let kind = if folderless.is_some() { PICK_FOLDER } else { NEW_PROJECT };
+        vec![crate::agents::MenuItem { kind: kind.into(), label: t!("Open folder…").into(), color: theme::pal().text_2 }]
     } else {
         deck.agents.empty_actions.clone()
     };
     let font = theme::ui(12.0);
     let btn_h = 12.0 * theme::LINE_HEIGHT + 14.0 + 2.0;
-    // Icon on the left: the model logo or, without one, the agent's dot; "Open folder…" has no icon.
-    let lead = |m: &crate::agents::MenuItem| if m.kind == NEW_PROJECT { 0.0 } else { 8.0 + 8.0 };
+    // Icon on the left: the model logo or, without one, the agent's dot; "Open folder…" has the 12 px folder glyph.
+    let is_folder = |m: &crate::agents::MenuItem| m.kind == NEW_PROJECT || m.kind == PICK_FOLDER;
+    let lead = |m: &crate::agents::MenuItem| if is_folder(m) { 12.0 } else { 8.0 + 8.0 };
     let widths: Vec<f32> = items
         .iter()
         .map(|m| 14.0 + lead(m) + 6.0 + galley(&painter, &m.label, font.clone(), theme::pal().text).size().x + 14.0 + 2.0)
@@ -102,7 +115,9 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
             x += widths[i] + 10.0;
             // The base secondary button (border, background and hover); the agent's dot and name go on top.
             let resp = button(ui, r, Id::new(("empty-btn", &m.kind)), "", ButtonKind::Secondary);
-            if m.kind != NEW_PROJECT {
+            if is_folder(m) {
+                super::paint_folder_icon(&painter, Pos2::new(r.min.x + 15.0 + 6.0, r.center().y), theme::pal().text_2);
+            } else {
                 super::projects::paint_kind_mark(
                     &mut deck.icons,
                     &painter,
@@ -127,6 +142,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     }
     match open.as_deref() {
         Some(NEW_PROJECT) => deck.new_project_dialog(),
+        Some(PICK_FOLDER) => deck.pick_workspace(),
         Some(kind) => deck.open_tab(kind, false),
         None => {}
     }
