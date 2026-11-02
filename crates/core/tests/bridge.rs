@@ -307,7 +307,10 @@ fn workspace_agents_md_and_spawn_specs() {
 
     let list = env.core.list_agents();
     let ids: Vec<&str> = list.iter().map(|a| a.id.as_str()).collect();
-    assert_eq!(ids, ["claude", "antigravity", "codex", "opencode", "aider", "goose", "copilot", "gemini", "qwen", "q", "interpreter", "shell"]);
+    assert_eq!(
+        ids,
+        ["claude", "antigravity", "codex", "opencode", "aider", "goose", "copilot", "gemini", "qwen", "q", "interpreter", "shell"]
+    );
     let shell = list.last().expect("shell");
     assert!(shell.installed && !shell.peer);
     env.core.shutdown();

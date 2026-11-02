@@ -564,7 +564,9 @@ fn acp_permission_cards_wait_for_the_user_and_each_answer_reaches_the_agent_as_i
 fn interrupting_an_acp_turn_cancels_the_session_and_the_tab_goes_idle() {
     let mut env = env_with_acp_chat_agent();
     send(&mut env, "do something slow");
-    env.pump("the running call", |d| d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.iter().any(|i| matches!(i, Item::Tool(_)))));
+    env.pump("the running call", |d| {
+        d.tabs[0].chat.as_ref().is_some_and(|c| c.transcript.items.iter().any(|i| matches!(i, Item::Tool(_))))
+    });
     assert!(env.deck.tabs[0].busy);
     assert_eq!(env.deck.tabs[0].phase, Some(holt_core::Phase::RunningCommand));
     env.deck.chat_interrupt(0);

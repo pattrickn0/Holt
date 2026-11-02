@@ -666,7 +666,13 @@ mod tests {
 
     #[test]
     fn agent_logos_rasterize_cleanly() {
-        for (icon, name) in [(Icon::ClaudeLogo, "Claude"), (Icon::AntigravityLogo, "Antigravity"), (Icon::CodexLogo, "Codex"), (Icon::GeminiLogo, "Gemini"), (Icon::AgentGeneric, "generic agent")] {
+        for (icon, name) in [
+            (Icon::ClaudeLogo, "Claude"),
+            (Icon::AntigravityLogo, "Antigravity"),
+            (Icon::CodexLogo, "Codex"),
+            (Icon::GeminiLogo, "Gemini"),
+            (Icon::AgentGeneric, "generic agent"),
+        ] {
             let (d, vb) = icon.path();
             let polys = flatten_path(d);
             assert!(!polys.is_empty(), "{name} has no polygons");

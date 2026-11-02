@@ -501,7 +501,12 @@ mod acp {
         pub fn until(&mut self, what: &str, mut done: impl FnMut(&Session) -> bool) {
             let limit = Instant::now() + Duration::from_secs(15);
             while !done(self) {
-                assert!(Instant::now() < limit, "timed out waiting for {what}; items: {:?}; events: {:?}", self.transcript.items, self.events);
+                assert!(
+                    Instant::now() < limit,
+                    "timed out waiting for {what}; items: {:?}; events: {:?}",
+                    self.transcript.items,
+                    self.events
+                );
                 match self.proc.try_recv() {
                     Some(ChatMsg::Event(ev)) => {
                         self.transcript.apply(&ev);
@@ -524,7 +529,11 @@ mod acp {
         }
 
         pub fn texts(&self) -> Vec<String> {
-            self.transcript.items.iter().filter_map(|i| if let Item::Assistant { text, .. } = i { Some(text.clone()) } else { None }).collect()
+            self.transcript
+                .items
+                .iter()
+                .filter_map(|i| if let Item::Assistant { text, .. } = i { Some(text.clone()) } else { None })
+                .collect()
         }
 
         pub fn permission(&mut self) -> chat::PermissionRequest {
@@ -819,7 +828,10 @@ fn a_saved_conversation_is_loaded_and_its_history_replaces_the_empty_view() {
     let items = &chat.transcript.items;
     assert!(matches!(&items[0], Item::User { text, .. } if text == "What is in main.rs?"), "{items:?}");
     assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "It has a main function."), "{items:?}");
-    assert!(matches!(&items[2], Item::Tool(c) if c.name == "Read" && c.input["file_path"] == "/work/main.rs" && c.outcome.is_some()), "{items:?}");
+    assert!(
+        matches!(&items[2], Item::Tool(c) if c.name == "Read" && c.input["file_path"] == "/work/main.rs" && c.outcome.is_some()),
+        "{items:?}"
+    );
     assert!(matches!(&items[3], Item::User { text, .. } if text == "and now?"), "{items:?}");
     assert_eq!(chat.transcript.session.as_deref(), Some("sess-old"));
     assert!(!chat.transcript.history_pending);
@@ -867,7 +879,8 @@ fn an_agent_that_wants_a_login_says_where_to_do_it() {
     let mut chat = acp::start(&env, "gemini");
     chat.send("hi");
     chat.until("the error", |s| s.transcript.items.iter().any(|i| matches!(i, Item::Notice { error: true, .. })));
-    let notice = chat.transcript.items.iter().find_map(|i| if let Item::Notice { text, .. } = i { Some(text.clone()) } else { None }).unwrap();
+    let notice =
+        chat.transcript.items.iter().find_map(|i| if let Item::Notice { text, .. } = i { Some(text.clone()) } else { None }).unwrap();
     assert!(notice.contains("Authentication required") && notice.contains("Terminal view"), "{notice}");
     // The message that waited ends as a failed turn instead of hanging the tab.
     chat.turns(1);
@@ -888,7 +901,11 @@ fn a_cli_without_its_own_instructions_channel_gets_them_in_front_of_the_first_pr
         .filter(|m| m["method"] == "session/prompt")
         .map(|m| m["params"]["prompt"][0]["text"].as_str().unwrap().to_owned())
         .collect();
-    assert!(prompts[0].starts_with("<holt-instructions>\n") && prompts[0].contains("do NOT use your CLI's internal subagents"), "{}", prompts[0]);
+    assert!(
+        prompts[0].starts_with("<holt-instructions>\n") && prompts[0].contains("do NOT use your CLI's internal subagents"),
+        "{}",
+        prompts[0]
+    );
     assert!(prompts[0].ends_with("</holt-instructions>\n\nfirst"));
     assert_eq!(prompts[1], "second");
     chat.proc.kill();

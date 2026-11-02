@@ -73,7 +73,11 @@ fn main() {
         match method.as_str() {
             "initialize" => {
                 let caps = json!({ "loadSession": agent.spec["load_session"].as_bool().unwrap_or(false) });
-                let auth = if agent.spec["auth_required"].as_bool().unwrap_or(false) { json!([{ "id": "login", "name": "Log in" }]) } else { json!([]) };
+                let auth = if agent.spec["auth_required"].as_bool().unwrap_or(false) {
+                    json!([{ "id": "login", "name": "Log in" }])
+                } else {
+                    json!([])
+                };
                 agent.send(json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": 1, "agentCapabilities": caps, "authMethods": auth } }));
             }
             "session/new" => {
@@ -103,11 +107,14 @@ fn main() {
                 agent.chunk(&session, "user_message_chunk", "main.rs?");
                 agent.chunk(&session, "agent_message_chunk", "It has a ");
                 agent.chunk(&session, "agent_message_chunk", "main function.");
-                agent.update(&session, json!({
-                    "sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "cat main.rs", "kind": "read",
-                    "status": "completed", "locations": [{ "path": "/work/main.rs" }],
-                    "content": [{ "type": "content", "content": { "type": "text", "text": "fn main() {}" } }],
-                }));
+                agent.update(
+                    &session,
+                    json!({
+                        "sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "cat main.rs", "kind": "read",
+                        "status": "completed", "locations": [{ "path": "/work/main.rs" }],
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "fn main() {}" } }],
+                    }),
+                );
                 agent.send(json!({ "jsonrpc": "2.0", "id": id, "result": null }));
             }
             "session/prompt" => {
@@ -138,31 +145,46 @@ fn turn(agent: &mut Agent, session: &str, prompt: &str) -> &'static str {
     }
     if has("tool") {
         agent.chunk(session, "agent_message_chunk", "Running it.");
-        agent.update(session, json!({
-            "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "echo hi", "kind": "execute", "status": "pending",
-            "rawInput": { "command": "echo hi" },
-        }));
+        agent.update(
+            session,
+            json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "echo hi", "kind": "execute", "status": "pending",
+                "rawInput": { "command": "echo hi" },
+            }),
+        );
         agent.update(session, json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "in_progress" }));
-        agent.update(session, json!({
-            "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed",
-            "content": [{ "type": "content", "content": { "type": "text", "text": "hi\n" } }],
-        }));
+        agent.update(
+            session,
+            json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed",
+                "content": [{ "type": "content", "content": { "type": "text", "text": "hi\n" } }],
+            }),
+        );
         agent.chunk(session, "agent_message_chunk", "It printed hi.");
     } else if has("edit") {
-        agent.update(session, json!({
-            "sessionUpdate": "tool_call", "toolCallId": "call-2", "title": "Edit notes.txt", "kind": "edit", "status": "pending",
-            "locations": [{ "path": "/work/notes.txt" }],
-        }));
-        agent.update(session, json!({
-            "sessionUpdate": "tool_call_update", "toolCallId": "call-2", "status": "completed",
-            "content": [{ "type": "diff", "path": "/work/notes.txt", "oldText": "one\ntwo\nthree\n", "newText": "one\nTWO\nthree\n" }],
-        }));
+        agent.update(
+            session,
+            json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-2", "title": "Edit notes.txt", "kind": "edit", "status": "pending",
+                "locations": [{ "path": "/work/notes.txt" }],
+            }),
+        );
+        agent.update(
+            session,
+            json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": "call-2", "status": "completed",
+                "content": [{ "type": "diff", "path": "/work/notes.txt", "oldText": "one\ntwo\nthree\n", "newText": "one\nTWO\nthree\n" }],
+            }),
+        );
         agent.chunk(session, "agent_message_chunk", "Edited.");
     } else if has("permission") {
-        agent.update(session, json!({
-            "sessionUpdate": "tool_call", "toolCallId": "call-3", "title": "rm -rf build", "kind": "execute", "status": "pending",
-            "rawInput": { "command": "rm -rf build" },
-        }));
+        agent.update(
+            session,
+            json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-3", "title": "rm -rf build", "kind": "execute", "status": "pending",
+                "rawInput": { "command": "rm -rf build" },
+            }),
+        );
         agent.send(json!({
             "jsonrpc": "2.0", "id": 77, "method": "session/request_permission",
             "params": {
@@ -188,10 +210,13 @@ fn turn(agent: &mut Agent, session: &str, prompt: &str) -> &'static str {
         agent.chunk(session, "agent_message_chunk", text);
     } else if has("slow") {
         agent.chunk(session, "agent_message_chunk", "Working");
-        agent.update(session, json!({
-            "sessionUpdate": "tool_call", "toolCallId": "call-4", "title": "sleep 60", "kind": "execute", "status": "in_progress",
-            "rawInput": { "command": "sleep 60" },
-        }));
+        agent.update(
+            session,
+            json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-4", "title": "sleep 60", "kind": "execute", "status": "in_progress",
+                "rawInput": { "command": "sleep 60" },
+            }),
+        );
         while let Some(msg) = agent.next() {
             if msg["method"] == "session/cancel" {
                 return "cancelled";

@@ -39,7 +39,9 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use super::backend::{Capability, ChatBackend, Interrupt, Parsed, Protocol};
-use super::{clip, patch_from_diff, str_of, Block, ChatEvent, Item, PermissionRequest, ToolOutcome, Transcript, TurnResult, RESULT_MAX_CHARS};
+use super::{
+    clip, patch_from_diff, str_of, Block, ChatEvent, Item, PermissionRequest, ToolOutcome, Transcript, TurnResult, RESULT_MAX_CHARS,
+};
 use crate::agents::SpawnSpec;
 use crate::models::Effort;
 use crate::t;
@@ -690,7 +692,11 @@ impl AcpProtocol {
                 self.context_tokens = u.get("used").and_then(Value::as_u64).unwrap_or(self.context_tokens);
                 self.context_window = u.get("size").and_then(Value::as_u64).unwrap_or(self.context_window);
                 if self.replay.is_none() {
-                    out.events.push(ChatEvent::Assistant { message: String::new(), blocks: Vec::new(), context_tokens: self.context_tokens });
+                    out.events.push(ChatEvent::Assistant {
+                        message: String::new(),
+                        blocks: Vec::new(),
+                        context_tokens: self.context_tokens,
+                    });
                 }
             }
             _ => {}
@@ -915,7 +921,9 @@ mod tests {
         assert_eq!(first[0]["method"], "session/new");
         assert_eq!(first[0]["params"], json!({ "cwd": "/work/project", "mcpServers": [] }));
         let parsed = p.parse(TEXT.lines().nth(1).unwrap());
-        assert!(matches!(&parsed.events[0], ChatEvent::Init { session, model, .. } if session == "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a" && model == "OpenCode Zen/Big Pickle"));
+        assert!(
+            matches!(&parsed.events[0], ChatEvent::Init { session, model, .. } if session == "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a" && model == "OpenCode Zen/Big Pickle")
+        );
         let prompt = json_lines(&parsed.reply);
         assert_eq!(prompt[0]["method"], "session/prompt");
         assert_eq!(prompt[0]["params"]["sessionId"], "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a");
@@ -929,7 +937,9 @@ mod tests {
         let _ = user(&mut p, &mut t, "hi");
         feed(&mut p, &mut t, TEXT);
         assert!(matches!(&t.items[1], Item::Thinking(x) if x == "The user greets me. I answer briefly."), "{:?}", t.items);
-        assert!(matches!(&t.items[2], Item::Assistant { text, streaming: false, .. } if text == "Hello! How can I help with this project?"));
+        assert!(
+            matches!(&t.items[2], Item::Assistant { text, streaming: false, .. } if text == "Hello! How can I help with this project?")
+        );
         assert_eq!(t.items.len(), 3);
         assert!(!t.busy(), "the stop reason ended the turn");
         assert_eq!(t.commands, ["init", "review"]);
@@ -947,7 +957,11 @@ mod tests {
                 t.apply(&ev);
             }
         }
-        assert!(matches!(t.items.last(), Some(Item::Assistant { streaming: true, text, .. }) if text == "Hello! How can I help "), "{:?}", t.items);
+        assert!(
+            matches!(t.items.last(), Some(Item::Assistant { streaming: true, text, .. }) if text == "Hello! How can I help "),
+            "{:?}",
+            t.items
+        );
         assert_eq!(t.phase(), Some(super::super::Phase::Writing));
     }
 
@@ -1051,7 +1065,10 @@ mod tests {
         }
         let Interrupt::Lines(sent) = p.interrupt() else { panic!("a notification, not a signal") };
         let sent = json_lines(&sent);
-        assert_eq!(sent[0], json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a" } }));
+        assert_eq!(
+            sent[0],
+            json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a" } })
+        );
         for ev in p.parse(CANCEL.lines().last().unwrap()).events {
             t.apply(&ev);
         }
@@ -1136,7 +1153,9 @@ mod tests {
         assert_eq!((reply[0]["id"].clone(), reply[0]["error"]["code"].clone()), (json!(9), json!(-32601)));
         let parsed = p.parse(r#"{"jsonrpc":"2.0","id":10,"method":"terminal/create","params":{"command":"ls"}}"#);
         assert_eq!(json_lines(&parsed.reply)[0]["error"]["code"], -32601);
-        for noise in ["", "not json", "{\"jsonrpc\":\"2.0\"", "[]", "{\"id\":null}", "{\"method\":\"$/progress\"}", "{\"id\":\"x\",\"result\":1}"] {
+        for noise in
+            ["", "not json", "{\"jsonrpc\":\"2.0\"", "[]", "{\"id\":null}", "{\"method\":\"$/progress\"}", "{\"id\":\"x\",\"result\":1}"]
+        {
             let parsed = p.parse(noise);
             assert!(parsed.events.is_empty() && parsed.reply.is_empty(), "{noise:?}");
         }
@@ -1149,7 +1168,9 @@ mod tests {
         let _ = user(&mut p, &mut t, "hi");
         let _ = p.parse(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[{"id":"login","name":"Log in"}]}}"#);
         let failed = p.parse(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required"}}"#);
-        assert!(matches!(&failed.events[0], ChatEvent::Notice { text, error: true } if text.contains("Authentication required") && text.contains("Terminal view")));
+        assert!(
+            matches!(&failed.events[0], ChatEvent::Notice { text, error: true } if text.contains("Authentication required") && text.contains("Terminal view"))
+        );
         for ev in &failed.events {
             t.apply(ev);
         }
@@ -1179,8 +1200,10 @@ mod tests {
             }
             t.phase()
         };
-        let call = |id: &str, kind: &str, raw: Value| json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "s",
-            "update": { "sessionUpdate": "tool_call", "toolCallId": id, "title": kind, "kind": kind, "status": "in_progress", "rawInput": raw } } });
+        let call = |id: &str, kind: &str, raw: Value| {
+            json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "s",
+            "update": { "sessionUpdate": "tool_call", "toolCallId": id, "title": kind, "kind": kind, "status": "in_progress", "rawInput": raw } } })
+        };
         assert_eq!(run(call("a", "execute", json!({ "command": "cargo test" }))), Some(Phase::Testing));
         assert_eq!(run(call("b", "read", json!({ "filePath": "/x" }))), Some(Phase::Reading));
         assert_eq!(run(call("c", "edit", json!({}))), Some(Phase::Editing));
