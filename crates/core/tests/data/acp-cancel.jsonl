@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"embeddedContext":true},"mcpCapabilities":{"http":true,"sse":true}},"authMethods":[]}}
+{"jsonrpc":"2.0","id":2,"result":{"sessionId":"ses_7f3a2c1d9e0b4a5f8c6d1e2f3a","models":{"currentModelId":"opencode/big-pickle","availableModels":[{"modelId":"opencode/big-pickle","name":"OpenCode Zen/Big Pickle"}]},"modes":{"currentModeId":"build","availableModes":[{"id":"build","name":"build"},{"id":"plan","name":"plan"}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_7f3a2c1d9e0b4a5f8c6d1e2f3a","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Starting"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_7f3a2c1d9e0b4a5f8c6d1e2f3a","update":{"sessionUpdate":"tool_call","toolCallId":"call_sleep","title":"bash","kind":"execute","status":"in_progress","rawInput":{"command":"sleep 30"}}}}
+{"jsonrpc":"2.0","id":3,"result":{"stopReason":"cancelled"}}

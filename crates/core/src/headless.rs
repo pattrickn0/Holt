@@ -205,7 +205,14 @@ impl Core {
                 stdin.clear();
             }
             "copilot" => {
-                args.extend(["explain".into(), self.prompt_arg(&workspace, prompt, via_cmd)]);
+                // The standalone CLI takes `-p <prompt>`; the old `gh copilot` extension only has `explain`.
+                let flag = if args.is_empty() { "-p" } else { "explain" };
+                args.extend([flag.into(), self.prompt_arg(&workspace, prompt, via_cmd)]);
+                stdin.clear();
+            }
+            // Gemini CLI and Qwen Code (a fork of it) run one prompt and print the answer with `-p`.
+            "gemini" | "qwen" => {
+                args.extend(["-p".into(), self.prompt_arg(&workspace, prompt, via_cmd)]);
                 stdin.clear();
             }
             "q" => {

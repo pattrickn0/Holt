@@ -448,10 +448,28 @@ With Claude Code installed and signed in (Linux or Windows; the Windows launch t
 - [ ] Open a task for Claude from the tasks desk: its tab is a chat and its first message is the task prompt.
 - [ ] A permission card left unanswered keeps the tab marked as waiting (ring in the sidebar, chime) when another tab is in view.
 
-- [ ] **View switch** (t11): the pane header of every Claude, Antigravity and Codex tab has two small icons (a chat bubble and a terminal prompt) in a dark track; the active one is filled in the tab's colour. Tooltips say "Chat view" / "Terminal view" (and the Portuguese ones with the language switched). Clicking the other one switches the view and keeps the conversation.
+- [ ] **View switch** (t11): the pane header of every Claude, Antigravity, Codex and ACP agent (OpenCode, Goose, Gemini, Copilot, Qwen) tab has two small icons (a chat bubble and a terminal prompt) in a dark track; the active one is filled in the tab's colour. Tooltips say "Chat view" / "Terminal view" (and the Portuguese ones with the language switched). Clicking the other one switches the view and keeps the conversation.
 - [ ] **Model and effort pickers** (t11): the composer row shows the model as a button ("opus ▾") and the effort next to it ("high ▾"). Opening the model button lists Default and the models of the CLI (Claude: opus, sonnet, haiku, fable; Antigravity: its list, one entry per model with the effort as the separate picker; Codex: no list, so the model stays plain text). Pick another one: a notice says the next answer uses it and the conversation continues (ask "what did I say before?" to check). Both buttons are dimmed with a tooltip while an answer is running.
 - [ ] Effort: Claude and Codex offer Default/low/medium/high; Antigravity offers low/medium/high only once its model has effort variants (otherwise the button is hidden or dimmed with the reason). Check the process with `ps` (`--model`, `--effort`; Codex `-c model_reasoning_effort=…`) and, for Antigravity, that the model name suffix changed.
 - [ ] Close and reopen Holt: the tab comes back with the same model and effort (the buttons show them and the CLI is launched with them). Switch the tab to the Terminal view: the CLI is launched with the same model and effort.
+
+## Chat view of an ACP agent (t21)
+
+With one of OpenCode (`npm install -g opencode-ai`), Goose, Gemini CLI, GitHub Copilot CLI (the standalone `copilot`, not `gh copilot`) or Qwen Code installed and signed in. **Nothing below was run against a real CLI when it was written** (none was installed; the automated tests use a fake ACP agent): for each CLI you have, go through it and note what differs in `memory/learnings/acp-protocol-traps.md`.
+
+- [ ] A new tab of the CLI opens as a **chat** (empty state), with the CLI's logo (Gemini) or the generic agent glyph (the others) as avatar. `ps` shows the ACP flags: `opencode acp`, `goose acp`, `gemini --acp`, `copilot --acp --stdio`, `qwen --acp`.
+- [ ] Type a message: it streams, tool calls show (Bash with its output, Read, Edit with the red/green diff), the model name the agent reports shows under the text, and `/` lists the agent's commands. Thinking blocks appear when the model sends them.
+- [ ] A command the agent wants to run asks first (amber card). **Allow** runs it, **Allow for this session** (only when the agent offers "always") does not ask again for it, **Deny** makes the agent say it was refused.
+- [ ] Stop button / Esc during a long command: the turn ends with "Interrupted." and the next message works (the agent must also drop the pending card).
+- [ ] Close and reopen Holt: the earlier messages come back (the agent replays them with `session/load`). A CLI that cannot load sessions starts a new conversation and says so in a notice. Switch the tab to the Terminal view and back: same conversation.
+- [ ] The model and effort buttons are not offered (OpenCode keeps a model button). Gemini and Qwen know about `ask-agent` (they get the instructions in front of the first prompt): ask "what other agents can you talk to?".
+- [ ] A CLI that is not signed in: the first message shows the agent's error plus "sign in in the Terminal view of this tab"; after signing in in the terminal view, the chat works.
+- [ ] Copilot with only the old `gh copilot` extension: the chat view says the standalone Copilot CLI is needed; the terminal view still works.
+- [ ] From another tab run `ask-agent <cli> "what is 2+2?"` (headless: `gemini -p`, `qwen -p`, `copilot -p`, `opencode run`, `goose run`): the answer comes back. The `-p` flags of Gemini, Qwen and Copilot were not run.
+
+### What stays manual for the chat view of the native backends (Claude, Antigravity, Codex)
+
+Automated now (`chat_flow_tests.rs`, `tests/chat.rs`, unit tests): Chat ↔ Terminal switch on the same conversation (all three), model/effort restart on the same session (Claude, Codex; Antigravity's suffix in `tests/chat.rs`), permission cards (Claude, Codex, ACP) and their answers, interrupt (Claude control request, Codex `turn/interrupt`, Antigravity SIGINT), resume after closing and opening Holt (Claude, ACP), phase and idle time in the sidebar label. Still by hand: the look of the view (cards, diff rows, avatars, pickers), real CLI behaviour (the fakes only follow the recorded shapes), Antigravity and Codex resume after a real Holt restart, dictation and attachments in the composer, the chime and the "waiting" ring with another tab in view, and the Windows `.cmd` shim launches.
 
 ## GitHub sign-in from the Git and GitHub panels (t14)
 

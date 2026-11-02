@@ -1,0 +1,9 @@
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"embeddedContext":true},"mcpCapabilities":{"http":true,"sse":true}},"authMethods":[]}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"<holt-instructions>\nRules\n</holt-instructions>\n\nCreate "}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hello.txt"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Creating the file."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write","kind":"edit","status":"completed","locations":[{"path":"/work/hello.txt"}],"content":[{"type":"diff","path":"/work/hello.txt","oldText":null,"newText":"hi\n"}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Thanks"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_old","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"You are welcome."}}}}
+{"jsonrpc":"2.0","id":2,"result":null}

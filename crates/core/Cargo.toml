@@ -59,3 +59,11 @@ doc = false
 [[example]]
 name = "memeval"
 test = true
+
+# A fake ACP agent for the chat tests: it speaks the Agent Client Protocol (see `tests/support/fake_acp_agent.rs`).
+[[bin]]
+name = "fake_acp_agent"
+path = "tests/support/fake_acp_agent.rs"
+test = false
+bench = false
+doc = false

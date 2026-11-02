@@ -62,8 +62,14 @@ pub(super) fn agent_icon(kind: &str) -> Option<Icon> {
         "claude" => Some(Icon::ClaudeLogo),
         "antigravity" => Some(Icon::AntigravityLogo),
         "codex" => Some(Icon::CodexLogo),
+        "gemini" => Some(Icon::GeminiLogo),
         _ => None,
     }
+}
+
+/// The avatar of an agent in the chat view: its logo, else a generic agent glyph (every CLI that goes through ACP has a chat).
+pub(super) fn chat_icon(kind: &str) -> Icon {
+    agent_icon(kind).unwrap_or(Icon::AgentGeneric)
 }
 
 /// The logo of an agent type's model (12 px) or, without a logo (terminal), the dot: the agent's mark in the

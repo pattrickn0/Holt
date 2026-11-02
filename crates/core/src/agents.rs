@@ -58,12 +58,17 @@ pub struct SpawnSpec {
     /// already carries it for the CLIs that resume by argument; a chat backend that resumes through its protocol
     /// (Codex's `thread/resume`) reads it here.
     pub session: Option<String>,
+    /// Chat launch only: the Holt instructions, when the CLI's chat backend puts them in front of the first prompt of a new
+    /// conversation ([`crate::chat::ChatBackend::prompt_instructions`]).
+    pub instructions: Option<String>,
 }
 
 /// Official colors (also used by the UI as a fallback).
 pub const COLOR_CLAUDE: &str = "#d97757";
 pub const COLOR_ANTIGRAVITY: &str = "#4f8cf7";
 pub const COLOR_CODEX: &str = "#10a37f";
+pub const COLOR_GEMINI: &str = "#8e75f2";
+pub const COLOR_QWEN: &str = "#0ea5e9";
 pub const COLOR_SHELL: &str = "#9aa0a6";
 
 /// Static definition of an agent (equivalent to an `AGENTS` entry).
@@ -127,7 +132,21 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Copilot",
         color: "#6e40c9",
         peer: true,
-        missing: "GitHub Copilot CLI not found. Install with:\r\n  gh extension install github/gh-copilot",
+        missing: "GitHub Copilot CLI not found. Install with:\r\n  npm install -g @github/copilot",
+    },
+    AgentDef {
+        id: "gemini",
+        label: "Gemini",
+        color: COLOR_GEMINI,
+        peer: true,
+        missing: "Gemini CLI not found. Install with:\r\n  npm install -g @google/gemini-cli",
+    },
+    AgentDef {
+        id: "qwen",
+        label: "Qwen",
+        color: COLOR_QWEN,
+        peer: true,
+        missing: "Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code",
     },
     AgentDef { id: "q", label: "Amazon Q", color: "#ff9900", peer: true, missing: "Amazon Q Developer CLI not found." },
     AgentDef {
@@ -151,7 +170,9 @@ impl AgentDef {
             "opencode" => t!("OpenCode not found. Install with:\r\n  npm install -g opencode-ai"),
             "aider" => t!("Aider CLI not found. Install with:\r\n  pip install aider-chat"),
             "goose" => t!("Goose CLI not found. Install from: https://github.com/block/goose"),
-            "copilot" => t!("GitHub Copilot CLI not found. Install with:\r\n  gh extension install github/gh-copilot"),
+            "copilot" => t!("GitHub Copilot CLI not found. Install with:\r\n  npm install -g @github/copilot"),
+            "gemini" => t!("Gemini CLI not found. Install with:\r\n  npm install -g @google/gemini-cli"),
+            "qwen" => t!("Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code"),
             "q" => t!("Amazon Q Developer CLI not found."),
             "interpreter" => t!("Open Interpreter not found. Install with:\r\n  pip install open-interpreter"),
             _ => t!("Shell not found."),
@@ -179,6 +200,8 @@ pub const ALIASES: &[(&str, &str)] = &[
     ("amazon-q", "q"),
     ("openai", "codex"),
     ("open-code", "opencode"),
+    ("gemini-cli", "gemini"),
+    ("qwen-code", "qwen"),
 ];
 
 pub fn agent_def(id: &str) -> Option<&'static AgentDef> {
@@ -415,8 +438,8 @@ impl Registry {
         }
     }
 
-    /// GitHub Copilot: `gh` with the `gh-copilot` extension (result cached for 30 s,
-    /// because it requires running `gh extension list`).
+    /// GitHub Copilot: the standalone `copilot` CLI (`npm install -g @github/copilot`, the one with an ACP mode), else `gh`
+    /// with the old `gh-copilot` extension (result cached for 30 s, because it requires running `gh extension list`).
     fn resolve_copilot(&self) -> Option<Resolved> {
         if let Some((at, r)) = self.copilot.lock().as_ref() {
             if at.elapsed() < COPILOT_CACHE_TTL {
@@ -429,6 +452,9 @@ impl Registry {
     }
 
     fn detect_copilot(&self) -> Option<Resolved> {
+        if let Some(standalone) = self.resolve_cli("copilot") {
+            return Some(standalone);
+        }
         let gh = if cfg!(windows) {
             self.which("gh.exe").or_else(|| self.which("gh.cmd")).or_else(|| self.which("gh"))
         } else {
@@ -767,6 +793,10 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
     // Requested > saved > role default; it is saved for the interface and for reopening the app.
     let model = core.assign_model(project, ident, None);
     let resolved = reg.resolve(kind).ok_or_else(|| def.install_hint().to_owned())?;
+    // `gh copilot` (the old extension) has no ACP mode: only the standalone `copilot` has a chat view.
+    if chat && kind == "copilot" && !resolved.command().1.is_empty() {
+        return Err(t!("The chat view of Copilot needs the standalone Copilot CLI: npm install -g @github/copilot").to_owned());
+    }
     let mut args = Vec::new();
     // Initial prompt of a newly opened task (see `Core::set_boot_prompt`). In Claude it is positional and goes
     // first: `--add-dir` and `--allowedTools` accept several values and would swallow the text.
@@ -777,7 +807,9 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
     }
     // The tab's own conversation (never "the last one": see `resume.rs`). OpenCode's goes next to `--standalone` below.
     let launch = core.plan_launch(project, ident);
-    let resumed = launch.as_ref().is_some_and(|l| l.resumed);
+    // A terminal launch resumes only when its command line carries the conversation (an ACP CLI resumes through its protocol,
+    // in the chat view only).
+    let resumed = launch.as_ref().is_some_and(|l| l.resumed && (chat || !l.args.is_empty()));
     let launch_args = || launch.iter().flat_map(|l| l.args.iter().cloned());
     let mut session_log = None;
     // The chat backend decides whether the conversation to resume goes in the arguments (Codex's protocol resumes by itself).
@@ -857,10 +889,15 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
     let effort = core.instance_effort(project, ident);
     if kind == "opencode" {
         // The TUI has no --model or --system: its own server + model and instructions in the configuration
-        // (see `models::opencode_tui`).
+        // (see `models::opencode_tui`). `opencode acp` reads the same configuration but is its own process: no
+        // `--standalone`, and the conversation is resumed by the protocol.
         let (extra, (key, value)) = models::opencode_tui(model.as_deref(), generic_file.as_deref());
-        args.extend(extra);
-        args.extend(launch.iter().flat_map(|l| l.args.iter().cloned()));
+        if let Some(backend) = backend {
+            args.extend(backend.spawn_args(&crate::chat::Launch { model: None, effort: None }));
+        } else {
+            args.extend(extra);
+            args.extend(launch.iter().flat_map(|l| l.args.iter().cloned()));
+        }
         env.insert(key, value);
     } else if let Some(backend) = backend {
         // The chat view: the backend says how its CLI takes the model and the effort.
@@ -900,6 +937,7 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         session_log,
         first_message,
         session: launch.as_ref().filter(|l| l.resumed).and_then(|l| l.id.clone()),
+        instructions: backend.filter(|b| b.prompt_instructions()).map(|_| instructions),
     })
 }
 
