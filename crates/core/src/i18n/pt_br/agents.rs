@@ -77,8 +77,20 @@ pub const ENTRIES: &[(&str, &str)] = &[
         "Goose CLI não encontrado. Instale a partir de: https://github.com/block/goose",
     ),
     (
-        "GitHub Copilot CLI not found. Install with:\r\n  gh extension install github/gh-copilot",
-        "GitHub Copilot CLI não encontrado. Instale com:\r\n  gh extension install github/gh-copilot",
+        "GitHub Copilot CLI not found. Install with:\r\n  npm install -g @github/copilot",
+        "GitHub Copilot CLI não encontrado. Instale com:\r\n  npm install -g @github/copilot",
+    ),
+    (
+        "Gemini CLI not found. Install with:\r\n  npm install -g @google/gemini-cli",
+        "Gemini CLI não encontrado. Instale com:\r\n  npm install -g @google/gemini-cli",
+    ),
+    (
+        "Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code",
+        "Qwen Code não encontrado. Instale com:\r\n  npm install -g @qwen-code/qwen-code",
+    ),
+    (
+        "The chat view of Copilot needs the standalone Copilot CLI: npm install -g @github/copilot",
+        "A visão de conversa do Copilot precisa do Copilot CLI independente: npm install -g @github/copilot",
     ),
     ("Amazon Q Developer CLI not found.", "Amazon Q Developer CLI não encontrado."),
     (

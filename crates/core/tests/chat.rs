@@ -439,3 +439,472 @@ fn the_real_claude_answers_in_the_chat_mode_and_resumes_the_conversation() {
     assert!(second.contains("BANANA7"), "{second}");
     core.shutdown();
 }
+
+// ---------- The generic ACP backend, against a fake ACP agent ----------
+
+/// The fake ACP agent (a test `[[bin]]`, see `tests/support/fake_acp_agent.rs`) installed as the CLI `name`, with `behaviour`
+/// next to it.
+mod acp {
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use holt_core::chat::{self, ChatEvent, ChatMsg, ChatProcess, Item, Transcript};
+    use holt_core::Ident;
+    use serde_json::{json, Value};
+
+    use super::env::*;
+
+    const FAKE_ACP_AGENT: &str = env!("CARGO_BIN_EXE_fake_acp_agent");
+
+    pub fn install(root: &Path, name: &str, behaviour: &Value) -> PathBuf {
+        let exe = if cfg!(windows) {
+            let bin = root.join("home").join(".local").join("bin");
+            std::fs::create_dir_all(&bin).expect("mkdir");
+            bin.join(format!("{name}.exe"))
+        } else {
+            let bin = root.join("fake-bin");
+            std::fs::create_dir_all(&bin).expect("mkdir");
+            bin.join(name)
+        };
+        std::fs::copy(FAKE_ACP_AGENT, &exe).expect("copy the fake agent");
+        std::fs::write(exe.with_extension("fake.json"), behaviour.to_string()).expect("behaviour");
+        exe
+    }
+
+    /// A chat process of the fake agent and the conversation its events build, like the interface does.
+    pub struct Session {
+        pub proc: ChatProcess,
+        pub transcript: Transcript,
+        pub events: Vec<ChatEvent>,
+        pub exited: Option<Option<i32>>,
+        pub spec: holt_core::SpawnSpec,
+    }
+
+    pub fn start(env: &Env, ident: &str) -> Session {
+        let ident = Ident::parse(ident).expect("ident");
+        let spec = env.core.spawn_spec_chat(&env.project, &ident).expect("spec");
+        let proc = env.core.spawn_chat(&spec, Arc::new(|| {})).expect("spawn");
+        // A chat opened on a saved conversation waits for its history.
+        let mut transcript = env.core.chat_history(&env.project, &ident.id());
+        transcript.history_pending = spec.session.is_some();
+        Session { proc, transcript, events: Vec::new(), exited: None, spec }
+    }
+
+    impl Session {
+        pub fn send(&mut self, text: &str) {
+            self.transcript.push_user(text, None);
+            self.proc.send_user(text);
+        }
+
+        /// Applies what arrives until `done` says stop.
+        pub fn until(&mut self, what: &str, mut done: impl FnMut(&Session) -> bool) {
+            let limit = Instant::now() + Duration::from_secs(15);
+            while !done(self) {
+                assert!(Instant::now() < limit, "timed out waiting for {what}; items: {:?}; events: {:?}", self.transcript.items, self.events);
+                match self.proc.try_recv() {
+                    Some(ChatMsg::Event(ev)) => {
+                        self.transcript.apply(&ev);
+                        self.events.push(ev);
+                    }
+                    Some(ChatMsg::Exited(code)) => self.exited = Some(code),
+                    Some(ChatMsg::Stderr(_)) => {}
+                    None => std::thread::sleep(Duration::from_millis(10)),
+                }
+            }
+        }
+
+        pub fn results(&self) -> usize {
+            self.events.iter().filter(|e| matches!(e, ChatEvent::Result(_))).count()
+        }
+
+        /// Waits for `n` results (turns that ended).
+        pub fn turns(&mut self, n: usize) {
+            self.until("the end of the turn", |s| s.results() >= n);
+        }
+
+        pub fn texts(&self) -> Vec<String> {
+            self.transcript.items.iter().filter_map(|i| if let Item::Assistant { text, .. } = i { Some(text.clone()) } else { None }).collect()
+        }
+
+        pub fn permission(&mut self) -> chat::PermissionRequest {
+            self.until("a permission request", |s| s.events.iter().any(|e| matches!(e, ChatEvent::Permission(_))));
+            self.events
+                .iter()
+                .find_map(|e| if let ChatEvent::Permission(p) = e { Some(p.clone()) } else { None })
+                .expect("a permission request")
+        }
+    }
+
+    pub fn log_lines(path: &Path) -> Vec<Value> {
+        std::fs::read_to_string(path).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+    }
+
+    pub fn behaviour(log: &Path) -> Value {
+        json!({ "log": log, "load_session": true, "models": true })
+    }
+}
+
+fn acp_env(kind: &str, behaviour: impl FnOnce(&std::path::Path) -> Value) -> (Env, std::path::PathBuf) {
+    let env = start_with(false, false);
+    let log = env.root.join(format!("{kind}-acp.log"));
+    acp::install(&env.root, kind, &behaviour(&log));
+    (env, log)
+}
+
+#[test]
+fn every_cli_with_an_acp_mode_starts_it_with_its_own_flags_and_resumes_through_the_protocol() {
+    let env = start_with(false, false);
+    for (kind, leading, mode) in [
+        ("opencode", vec!["acp"], vec![]),
+        ("goose", vec!["acp"], vec![]),
+        ("gemini", vec![], vec!["--acp"]),
+        ("qwen", vec![], vec!["--acp"]),
+    ] {
+        acp::install(&env.root, kind, &json!({}));
+        let ident = Ident::main(kind);
+        let spec = env.core.spawn_spec_chat(&env.project, &ident).unwrap_or_else(|e| panic!("{kind}: {e}"));
+        assert_eq!(spec.args.iter().take(leading.len()).collect::<Vec<_>>(), leading, "{kind}: {:?}", spec.args);
+        assert_eq!(spec.args.iter().rev().take(mode.len()).rev().collect::<Vec<_>>(), mode, "{kind}: {:?}", spec.args);
+        assert!(!spec.args.iter().any(|a| a == "--session" || a == "--resume"), "{kind} resumes by session/load: {:?}", spec.args);
+        assert!(env.core.tab_is_chat(&env.project, &ident), "{kind} opens in the chat view");
+        // Only the CLIs with no instructions channel of their own get them in front of the first prompt.
+        let own_channel = matches!(kind, "opencode" | "goose");
+        assert_eq!(spec.instructions.is_some(), !own_channel, "{kind}");
+    }
+    // A CLI without an ACP mode stays terminal-only.
+    for kind in ["aider", "interpreter", "q"] {
+        assert!(!chat::supports(kind), "{kind}");
+        assert!(env.core.spawn_spec_chat(&env.project, &Ident::main(kind)).is_err(), "{kind}");
+    }
+    env.core.shutdown();
+}
+
+#[test]
+fn opencode_in_acp_mode_keeps_its_model_and_instructions_in_the_configuration() {
+    let (env, _) = acp_env("opencode", |_| json!({}));
+    let ident = Ident::main("opencode");
+    env.core.set_tab_model(&env.project, &ident, Some("opencode/glm-5.3-flash-free")).expect("model");
+    let spec = env.core.spawn_spec_chat(&env.project, &ident).expect("spec");
+    assert_eq!(spec.args, ["acp"], "no --standalone, no --model: {:?}", spec.args);
+    let config: Value = serde_json::from_str(&spec.env["OPENCODE_CONFIG_CONTENT"]).expect("json");
+    assert_eq!(config["model"], "opencode/glm-5.3-flash-free");
+    assert!(config["instructions"][0].as_str().is_some());
+    // The terminal view of the same tab keeps its own launch.
+    let term = env.core.spawn_spec_for(&env.project, &ident).expect("spec");
+    assert!(term.args.iter().any(|a| a == "--standalone"), "{:?}", term.args);
+    env.core.shutdown();
+}
+
+#[test]
+fn copilot_in_chat_needs_the_standalone_cli_not_the_old_gh_extension() {
+    let env = start_with(false, false);
+    // Only `gh` with the extension: the terminal works, the chat has nothing to speak ACP with.
+    let gh = env.root.join("fake-bin").join("gh");
+    std::fs::write(&gh, "#!/bin/sh\necho 'gh-copilot  github/gh-copilot'\n").expect("gh");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let err = env.core.spawn_spec_chat(&env.project, &Ident::main("copilot")).expect_err("no standalone copilot");
+        assert!(err.contains("standalone"), "{err}");
+        assert!(env.core.spawn_spec_for(&env.project, &Ident::main("copilot")).is_ok());
+    }
+    env.core.shutdown();
+}
+
+#[test]
+fn the_handshake_opens_a_session_and_text_streams_into_one_message_per_turn() {
+    let (env, log) = acp_env("opencode", acp::behaviour);
+    let mut chat = acp::start(&env, "opencode");
+    chat.send("hello there");
+    chat.turns(1);
+    assert_eq!(chat.texts(), ["echo: hello there"]);
+    assert!(!chat.transcript.busy());
+    // What Holt said: initialize with no fs and no terminal, then a session in the tab's folder, then the prompt.
+    let sent = acp::log_lines(&log);
+    assert_eq!(sent[0]["method"], "initialize");
+    assert_eq!(sent[0]["params"]["protocolVersion"], 1);
+    assert_eq!(sent[0]["params"]["clientCapabilities"]["fs"], json!({ "readTextFile": false, "writeTextFile": false }));
+    assert_eq!(sent[0]["params"]["clientCapabilities"]["terminal"], false);
+    assert_eq!(sent[1]["method"], "session/new");
+    assert_eq!(sent[1]["params"]["cwd"], chat.spec.cwd.to_string_lossy().as_ref());
+    assert_eq!(sent[1]["params"]["mcpServers"], json!([]));
+    assert_eq!(sent[2]["method"], "session/prompt");
+    assert_eq!(sent[2]["params"]["sessionId"], "sess-new");
+    assert_eq!(sent[2]["params"]["prompt"], json!([{ "type": "text", "text": "hello there" }]));
+    assert!(sent.iter().all(|m| m["jsonrpc"] == "2.0"));
+    // The session id, the model the agent says it uses and its commands reach the view.
+    assert_eq!(chat.transcript.session.as_deref(), Some("sess-new"));
+    assert_eq!(chat.transcript.model, "Fast One");
+    assert_eq!(chat.transcript.commands, ["review"]);
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn a_message_sent_during_a_turn_waits_and_each_message_gets_its_own_result() {
+    let (env, log) = acp_env("goose", acp::behaviour);
+    let mut chat = acp::start(&env, "goose");
+    chat.send("first");
+    chat.send("second");
+    chat.send("third");
+    chat.turns(3);
+    assert_eq!(chat.texts(), ["echo: first", "echo: second", "echo: third"]);
+    let prompts: Vec<Value> = acp::log_lines(&log).into_iter().filter(|m| m["method"] == "session/prompt").collect();
+    assert_eq!(prompts.len(), 3);
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn thinking_and_a_tool_call_with_its_output_become_items_in_order() {
+    let (env, _) = acp_env("opencode", acp::behaviour);
+    let mut chat = acp::start(&env, "opencode");
+    chat.send("think and run a tool");
+    chat.turns(1);
+    let kinds: Vec<&str> = chat
+        .transcript
+        .items
+        .iter()
+        .map(|i| match i {
+            Item::User { .. } => "user",
+            Item::Thinking(_) => "thinking",
+            Item::Assistant { .. } => "text",
+            Item::Tool(_) => "tool",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["user", "thinking", "text", "tool", "text"]);
+    assert!(matches!(&chat.transcript.items[1], Item::Thinking(t) if t == "Let me think."));
+    let Item::Tool(call) = &chat.transcript.items[3] else { panic!() };
+    assert_eq!((call.name.as_str(), call.input["command"].as_str()), ("Bash", Some("echo hi")));
+    let outcome = call.outcome.as_ref().expect("a result");
+    assert_eq!((outcome.text.as_str(), outcome.is_error), ("hi\n", false));
+    assert_eq!(chat.texts(), ["Running it.", "It printed hi."]);
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn an_edit_carries_its_diff_as_the_patch_hunks() {
+    let (env, _) = acp_env("goose", acp::behaviour);
+    let mut chat = acp::start(&env, "goose");
+    chat.send("edit the notes");
+    chat.turns(1);
+    let call = chat.transcript.items.iter().find_map(|i| if let Item::Tool(c) = i { Some(c) } else { None }).expect("a tool call");
+    assert_eq!((call.name.as_str(), call.input["file_path"].as_str()), ("Edit", Some("/work/notes.txt")));
+    let patch = &call.outcome.as_ref().expect("a result").patch;
+    assert_eq!(patch.len(), 1);
+    assert_eq!(patch[0].lines, [" one", "-two", "+TWO", " three"]);
+    assert!(call.input["diff"].as_str().unwrap().contains("+TWO"), "the diff is also in the call, for the permission card");
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn a_permission_allowed_once_for_the_session_or_denied_reaches_the_agent_as_the_matching_option() {
+    for (allow, for_session, expect) in [(true, false, "allowed once"), (true, true, "allowed always"), (false, false, "denied")] {
+        let (env, log) = acp_env("opencode", acp::behaviour);
+        let mut chat = acp::start(&env, "opencode");
+        chat.send("ask a permission");
+        let request = chat.permission();
+        assert_eq!((request.tool.as_str(), request.input["command"].as_str()), ("Bash", Some("rm -rf build")));
+        assert_eq!(request.request_id, "77");
+        // "For this session" is offered because the agent has an allow_always option; it travels as that option's id.
+        assert_eq!(request.suggestions, vec![json!("always")]);
+        assert!(chat.transcript.waiting_for_permission());
+        assert!(chat.transcript.busy(), "the turn waits for the user");
+        let rules = if for_session { request.suggestions.clone() } else { Vec::new() };
+        chat.proc.answer_permission(&request.request_id, allow, &request.input, "no", &rules);
+        chat.transcript.answer_permission(&request.request_id, allow);
+        chat.turns(1);
+        assert_eq!(chat.texts(), [expect]);
+        let answer = acp::log_lines(&log).into_iter().find(|m| m["id"] == 77).expect("the answer");
+        assert_eq!(answer["result"]["outcome"]["outcome"], "selected");
+        let option = match expect {
+            "allowed once" => "once",
+            "allowed always" => "always",
+            _ => "no",
+        };
+        assert_eq!(answer["result"]["outcome"]["optionId"], option);
+        chat.proc.kill();
+        env.core.shutdown();
+    }
+}
+
+#[test]
+fn cancelling_mid_turn_sends_session_cancel_and_the_turn_ends_interrupted() {
+    let (env, log) = acp_env("goose", acp::behaviour);
+    let mut chat = acp::start(&env, "goose");
+    chat.send("do something slow");
+    chat.until("the tool call", |s| s.transcript.items.iter().any(|i| matches!(i, Item::Tool(_))));
+    assert!(chat.transcript.busy());
+    chat.proc.interrupt();
+    chat.turns(1);
+    assert!(chat.events.iter().any(|e| matches!(e, ChatEvent::Interrupted)));
+    assert!(!chat.transcript.busy());
+    assert!(chat.transcript.items.iter().any(|i| matches!(i, Item::Notice { text, .. } if text == "Interrupted.")));
+    // The call the turn left open is closed, not left spinning.
+    let call = chat.transcript.items.iter().find_map(|i| if let Item::Tool(c) = i { Some(c) } else { None }).expect("call");
+    assert!(call.outcome.as_ref().is_some_and(|o| o.is_error));
+    let cancel = acp::log_lines(&log).into_iter().find(|m| m["method"] == "session/cancel").expect("a cancel");
+    assert_eq!(cancel["params"]["sessionId"], "sess-new");
+    assert!(cancel.get("id").is_none(), "session/cancel is a notification");
+    // The agent is still alive and takes the next message.
+    chat.send("hello again");
+    chat.turns(2);
+    assert_eq!(chat.texts().last().map(String::as_str), Some("echo: hello again"));
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn an_interrupt_with_a_pending_permission_cancels_the_request_too() {
+    let (env, log) = acp_env("opencode", acp::behaviour);
+    let mut chat = acp::start(&env, "opencode");
+    chat.send("ask a permission");
+    let _ = chat.permission();
+    chat.proc.interrupt();
+    chat.turns(1);
+    let answer = acp::log_lines(&log).into_iter().find(|m| m["id"] == 77).expect("the request is answered");
+    assert_eq!(answer["result"]["outcome"], json!({ "outcome": "cancelled" }));
+    assert!(!chat.transcript.waiting_for_permission(), "the card is no longer pending once the turn ended");
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn a_process_that_exits_in_the_middle_of_a_turn_is_reported() {
+    let (env, _) = acp_env("opencode", acp::behaviour);
+    let mut chat = acp::start(&env, "opencode");
+    chat.send("crash now");
+    chat.until("the exit", |s| s.exited.is_some());
+    assert_eq!(chat.exited, Some(Some(3)));
+    assert_eq!(chat.results(), 0, "the turn never ended");
+    chat.transcript.process_ended();
+    assert!(!chat.transcript.busy());
+    assert_eq!(chat.texts(), ["About to fail"]);
+    env.core.shutdown();
+}
+
+#[test]
+fn a_line_that_is_not_json_and_a_method_holt_never_advertised_do_not_stop_the_turn() {
+    let (env, log) = acp_env("goose", acp::behaviour);
+    let mut chat = acp::start(&env, "goose");
+    chat.send("garbage and a request");
+    chat.turns(1);
+    assert_eq!(chat.texts(), ["echo: garbage and a request"]);
+    // The agent asked for a file Holt never offered to read: it got an error, not silence.
+    let reply = acp::log_lines(&log).into_iter().find(|m| m["id"] == 900).expect("an answer to the request");
+    assert_eq!(reply["error"]["code"], -32601);
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn a_saved_conversation_is_loaded_and_its_history_replaces_the_empty_view() {
+    let (env, log) = acp_env("goose", acp::behaviour);
+    let ident = Ident::main("goose");
+    assert!(env.core.set_tab_session(&env.project, &ident.id(), "sess-old"));
+    let mut chat = acp::start(&env, "goose");
+    assert_eq!(chat.spec.session.as_deref(), Some("sess-old"));
+    assert!(chat.transcript.history_pending);
+    chat.send("and now?");
+    chat.turns(1);
+    let load = acp::log_lines(&log).into_iter().find(|m| m["method"] == "session/load").expect("session/load");
+    assert_eq!((load["params"]["sessionId"].as_str(), load["params"]["mcpServers"].clone()), (Some("sess-old"), json!([])));
+    assert!(acp::log_lines(&log).iter().all(|m| m["method"] != "session/new"));
+    // The history comes first, then what was typed while the process started.
+    let items = &chat.transcript.items;
+    assert!(matches!(&items[0], Item::User { text, .. } if text == "What is in main.rs?"), "{items:?}");
+    assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "It has a main function."), "{items:?}");
+    assert!(matches!(&items[2], Item::Tool(c) if c.name == "Read" && c.input["file_path"] == "/work/main.rs" && c.outcome.is_some()), "{items:?}");
+    assert!(matches!(&items[3], Item::User { text, .. } if text == "and now?"), "{items:?}");
+    assert_eq!(chat.transcript.session.as_deref(), Some("sess-old"));
+    assert!(!chat.transcript.history_pending);
+    // The prompt goes to the loaded session.
+    let prompt = acp::log_lines(&log).into_iter().find(|m| m["method"] == "session/prompt").expect("prompt");
+    assert_eq!(prompt["params"]["sessionId"], "sess-old");
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn an_agent_without_load_session_starts_a_new_conversation_and_says_so() {
+    let (env, log) = acp_env("qwen", |log| json!({ "log": log, "load_session": false }));
+    let ident = Ident::main("qwen");
+    assert!(env.core.set_tab_session(&env.project, &ident.id(), "sess-old"));
+    let mut chat = acp::start(&env, "qwen");
+    chat.send("hi");
+    chat.turns(1);
+    assert!(chat.transcript.items.iter().any(|i| matches!(i, Item::Notice { text, error: false } if text.contains("cannot resume"))));
+    assert!(acp::log_lines(&log).iter().all(|m| m["method"] != "session/load"));
+    assert_eq!(chat.transcript.session.as_deref(), Some("sess-new"), "the new id replaces the saved one");
+    assert!(!chat.transcript.history_pending, "nothing to wait for");
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn a_conversation_the_agent_no_longer_has_falls_back_to_a_new_one() {
+    let (env, _) = acp_env("goose", acp::behaviour);
+    let ident = Ident::main("goose");
+    assert!(env.core.set_tab_session(&env.project, &ident.id(), "gone"));
+    let mut chat = acp::start(&env, "goose");
+    chat.send("hi");
+    chat.turns(1);
+    assert!(chat.transcript.items.iter().any(|i| matches!(i, Item::Notice { text, .. } if text.contains("Session not found"))));
+    assert_eq!(chat.texts(), ["echo: hi"]);
+    assert_eq!(chat.transcript.session.as_deref(), Some("sess-new"));
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn an_agent_that_wants_a_login_says_where_to_do_it() {
+    let (env, _) = acp_env("gemini", |_| json!({ "auth_required": true }));
+    let mut chat = acp::start(&env, "gemini");
+    chat.send("hi");
+    chat.until("the error", |s| s.transcript.items.iter().any(|i| matches!(i, Item::Notice { error: true, .. })));
+    let notice = chat.transcript.items.iter().find_map(|i| if let Item::Notice { text, .. } = i { Some(text.clone()) } else { None }).unwrap();
+    assert!(notice.contains("Authentication required") && notice.contains("Terminal view"), "{notice}");
+    // The message that waited ends as a failed turn instead of hanging the tab.
+    chat.turns(1);
+    assert!(!chat.transcript.busy());
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn a_cli_without_its_own_instructions_channel_gets_them_in_front_of_the_first_prompt_only() {
+    let (env, log) = acp_env("gemini", acp::behaviour);
+    let mut chat = acp::start(&env, "gemini");
+    chat.send("first");
+    chat.send("second");
+    chat.turns(2);
+    let prompts: Vec<String> = acp::log_lines(&log)
+        .into_iter()
+        .filter(|m| m["method"] == "session/prompt")
+        .map(|m| m["params"]["prompt"][0]["text"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(prompts[0].starts_with("<holt-instructions>\n") && prompts[0].contains("do NOT use your CLI's internal subagents"), "{}", prompts[0]);
+    assert!(prompts[0].ends_with("</holt-instructions>\n\nfirst"));
+    assert_eq!(prompts[1], "second");
+    chat.proc.kill();
+    env.core.shutdown();
+}
+
+#[test]
+fn the_instructions_are_not_shown_when_a_conversation_that_carried_them_is_replayed() {
+    // The agent replays the first prompt as it received it, preamble included.
+    let (env, _) = acp_env("qwen", acp::behaviour);
+    let ident = Ident::main("qwen");
+    assert!(env.core.set_tab_session(&env.project, &ident.id(), "sess-old"));
+    let mut chat = acp::start(&env, "qwen");
+    chat.send("again");
+    chat.turns(1);
+    assert!(chat.transcript.items.iter().all(|i| !matches!(i, Item::User { text, .. } if text.contains("holt-instructions"))));
+    chat.proc.kill();
+    env.core.shutdown();
+}

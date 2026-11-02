@@ -12,7 +12,8 @@
 //! 3. [`ChatProcess`]: the child process, its reader/writer threads and the registry/shutdown handling of every tab.
 //!
 //! What differs between CLIs lives in the backend layer ([`backend`]: a [`ChatBackend`] per CLI and a [`Protocol`] per
-//! running process; Claude Code, Antigravity and Codex today). [`supports`] reads the capability of the backend. How to
+//! running process; Claude Code, Antigravity and Codex have their own, every other CLI goes through ACP, see [`acp`]).
+//! [`supports`] reads the capability of the backend. How to
 //! add one, and what OpenCode and ACP would need, is in `memory/ARCHITECTURE.md`.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -29,6 +30,7 @@ use crate::agents::SpawnSpec;
 use crate::t;
 use crate::{process, Core};
 
+mod acp;
 mod backend;
 mod codex;
 
@@ -45,6 +47,11 @@ const INTERRUPTED: &str = "[Request interrupted by user";
 /// CLIs that have a chat view: the ones whose backend says so.
 pub fn supports(kind: &str) -> bool {
     capability(kind) == Capability::Chat
+}
+
+/// The CLI speaks ACP and goes through the generic backend (see `acp.rs`).
+pub fn is_acp(kind: &str) -> bool {
+    acp::backend_for(kind).is_some()
 }
 
 /// Slash commands that open a screen of the terminal UI and do nothing useful in the structured mode.
@@ -965,9 +972,23 @@ impl Transcript {
                 }
             }
             Block::ToolUse { id, name, input } => {
-                if !self.items.iter().any(|i| matches!(i, Item::Tool(c) if c.id == *id)) {
-                    self.finish_streaming();
-                    self.push(Item::Tool(ToolCall { id: id.clone(), name: name.clone(), input: input.clone(), outcome: None }));
+                let known = self.items.iter_mut().rev().find_map(|i| match i {
+                    Item::Tool(c) if c.id == *id => Some(c),
+                    _ => None,
+                });
+                match known {
+                    // The same call again, with more to say (ACP sends the diff of an edit after the call): it updates the
+                    // call while it has no result.
+                    Some(call) => {
+                        if call.outcome.is_none() && (call.input != *input || call.name != *name) {
+                            call.name.clone_from(name);
+                            call.input = input.clone();
+                        }
+                    }
+                    None => {
+                        self.finish_streaming();
+                        self.push(Item::Tool(ToolCall { id: id.clone(), name: name.clone(), input: input.clone(), outcome: None }));
+                    }
                 }
             }
         }

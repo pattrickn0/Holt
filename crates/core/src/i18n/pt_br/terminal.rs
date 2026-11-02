@@ -48,6 +48,23 @@ pub const ENTRIES: &[(&str, &str)] = &[
         "Could not resume the Codex conversation ({reason}). A new one was started.",
         "Não foi possível retomar a conversa do Codex ({reason}). Uma nova foi iniciada.",
     ),
+    (
+        "This agent cannot resume a saved conversation. A new one was started.",
+        "Este agente não consegue retomar uma conversa salva. Uma nova foi iniciada.",
+    ),
+    (
+        "Could not resume the conversation ({reason}). A new one was started.",
+        "Não foi possível retomar a conversa ({reason}). Uma nova foi iniciada.",
+    ),
+    (
+        "{reason}. This agent may need you to sign in: do it in the Terminal view of this tab.",
+        "{reason}. Este agente pode precisar que você entre na conta: faça isso na visão de terminal desta aba.",
+    ),
+    ("Cancelled.", "Cancelado."),
+    ("The agent stopped: it reached its limit of output tokens.", "O agente parou: chegou ao limite de tokens de saída."),
+    ("The agent stopped: it reached its limit of requests in one turn.", "O agente parou: chegou ao limite de requisições em um turno."),
+    ("The agent refused to continue.", "O agente se recusou a continuar."),
+    ("The call failed.", "A chamada falhou."),
     ("Chat view", "Visão de conversa"),
     ("{agent} switches to the chat view when this turn ends.", "{agent} muda para a visão de conversa quando este turno terminar."),
     ("{agent} switches to the terminal view when this turn ends.", "{agent} muda para a visão de terminal quando este turno terminar."),

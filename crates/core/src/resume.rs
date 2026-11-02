@@ -35,13 +35,14 @@ pub const FAIL_WINDOW: Duration = Duration::from_secs(10);
 
 /// The CLI has a session id of its own that the app can choose or learn (the others open a new conversation each time).
 pub fn supports(kind: &str) -> bool {
-    matches!(kind, "claude" | "opencode" | "antigravity" | "codex")
+    matches!(kind, "claude" | "opencode" | "antigravity" | "codex") || crate::chat::is_acp(kind)
 }
 
 /// The CLI picks the id of a new conversation itself: the app learns it after the launch (Antigravity's log, Codex's
-/// `notify`) instead of choosing it.
+/// `notify`) instead of choosing it. A CLI in ACP mode names its sessions in `session/new` (the chat view saves the id from
+/// there); OpenCode's TUI still takes an id the app chooses (`--session`), and an ACP session of it is one of its own sessions.
 pub fn learns_id_later(kind: &str) -> bool {
-    matches!(kind, "antigravity" | "codex")
+    matches!(kind, "antigravity" | "codex") || (crate::chat::is_acp(kind) && kind != "opencode")
 }
 
 /// Session id that is safe for the command line, the JSON and the file name: letters, digits, `-` and `_`.

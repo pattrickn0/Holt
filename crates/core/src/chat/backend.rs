@@ -6,7 +6,7 @@
 //! [`Protocol`] per running process: the state machine that turns the CLI's stdout lines into [`ChatEvent`]s and
 //! the messages, answers and interrupts of the user into the lines (or the signal) the CLI expects.
 //!
-//! Adding a CLI: see "How to add a chat backend" in `memory/ARCHITECTURE.md`.
+//! Adding a CLI: put it through ACP first (one row in `acp::CLIS`); see "How to add a chat backend" in `memory/ARCHITECTURE.md`.
 
 use std::path::Path;
 
@@ -95,6 +95,11 @@ pub trait ChatBackend: Sync {
     fn resumes_by_args(&self) -> bool {
         true
     }
+    /// The Holt instructions go in front of the first prompt of a new conversation ([`SpawnSpec::instructions`]), because the
+    /// CLI has no channel of its own for them (an ACP CLI none of `agents.rs` knows).
+    fn prompt_instructions(&self) -> bool {
+        false
+    }
     /// A new protocol for a process started from `spec`.
     fn protocol(&self, spec: &SpawnSpec) -> Box<dyn Protocol>;
     /// What the CLI saved of the conversation `session`, for a resumed chat to show it. `None` = nothing readable.
@@ -125,7 +130,8 @@ pub fn for_kind(kind: &str) -> Option<&'static dyn ChatBackend> {
         "claude" => &CLAUDE,
         "antigravity" => &ANTIGRAVITY,
         "codex" => &CODEX,
-        _ => return None,
+        // Any other CLI that speaks ACP (a row of `acp::CLIS`).
+        _ => super::acp::backend_for(kind)?,
     };
     Some(backend)
 }
