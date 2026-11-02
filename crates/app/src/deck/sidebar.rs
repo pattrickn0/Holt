@@ -8,6 +8,11 @@ impl Deck {
         self.persist_layout();
     }
 
+    /// The project on screen has a folder on disk (the explorer and its actions need one).
+    pub fn has_folder(&self) -> bool {
+        !self.debug_files_empty && !self.workspace.as_os_str().is_empty() && self.workspace.is_dir()
+    }
+
     pub fn refresh_tree(&mut self) {
         self.workspace = self.core.workspace();
         self.tree.cache.clear();

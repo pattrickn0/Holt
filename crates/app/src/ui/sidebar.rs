@@ -5,9 +5,7 @@ use std::collections::HashMap;
 
 use egui::{Align2, Color32, CursorIcon, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
-use super::{
-    button, button_width, clickable, galley, galley_trunc, paint_splitter, place, section_label, separator, text_in, tip, ButtonKind,
-};
+use super::{clickable, galley, galley_trunc, paint_splitter, place, section_label, separator, text_in, tip};
 use crate::deck::{Deck, TreeRow};
 use crate::icons::Icon;
 use crate::theme;
@@ -35,14 +33,23 @@ const FILTER_BAR_H: f32 = 24.0;
 const SIDE_MARGIN: f32 = 4.0;
 const FILE_INDENT: f32 = 12.0;
 
-/// Action buttons in the `FILES` header, in priority order when width is tight.
+/// Buttons of the `FILES` header. Filter and ChangedOnly are always there (toggles with a lit state);
+/// CollapseAll only shows while the pointer is over the `FILES` area. Refresh lives only in the right-click menu:
+/// the tree already refreshes by itself (`CoreEvent::WorkspaceChanged`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilesAction {
     Filter,
     ChangedOnly,
     CollapseAll,
-    Refresh,
 }
+
+/// Hit area of a header button (corners 5).
+const FILES_BTN: f32 = 22.0;
+/// Space between the header buttons, and from the last one to the island edge.
+const FILES_BTN_GAP: f32 = 2.0;
+const FILES_BTN_EDGE: f32 = 6.0;
+/// Grid of the header glyphs: a 12 px box, stroke 1.3 for all.
+const FILES_GLYPH_STROKE: f32 = 1.3;
 
 /// Flattened file row when a filter query or "changed only" is active.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,17 +91,20 @@ pub fn clamp_projects_ratio(avail_h: f32, pointer_offset_y: f32) -> f32 {
     (clamped / avail_h).clamp(0.05, 0.95)
 }
 
-/// Which `FILES` header action icons fit in the horizontal room to the right of the `"FILES"` label.
-pub fn files_header_actions(avail_after_label: f32) -> &'static [FilesAction] {
-    const ALL: [FilesAction; 4] = [FilesAction::Filter, FilesAction::ChangedOnly, FilesAction::CollapseAll, FilesAction::Refresh];
-    const THREE: [FilesAction; 3] = [FilesAction::Filter, FilesAction::ChangedOnly, FilesAction::Refresh];
-    const TWO: [FilesAction; 2] = [FilesAction::Filter, FilesAction::ChangedOnly];
-    if avail_after_label >= 4.0 * 20.0 {
-        &ALL
-    } else if avail_after_label >= 3.0 * 20.0 {
-        &THREE
+/// Whether the hover-only collapse-all button has room next to the two always-visible ones, given the
+/// horizontal room to the right of the `"FILES"` label (and the 6 px edge margin already taken out).
+pub fn files_hover_slot_fits(avail_after_label: f32) -> bool {
+    avail_after_label >= 3.0 * FILES_BTN + 2.0 * FILES_BTN_GAP
+}
+
+/// What the `FILES` header says next to the label: `"N changed"` while the changed-only view is on, otherwise
+/// `"<project> · <branch>"`.
+pub fn files_header_meta(changed_only: bool, changed: usize, project: Option<&str>, branch: Option<&str>) -> (String, bool) {
+    if changed_only {
+        let text = if changed == 1 { t!("1 changed").to_owned() } else { t!("{n} changed", n = changed) };
+        (text, true)
     } else {
-        &TWO
+        (files_context_label(project, branch), false)
     }
 }
 
@@ -213,56 +223,83 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
         super::galley_spaced(&painter, files_label, theme::label(10.0), theme::pal().text_3, 10.0 * theme::LABEL_SPACING_EM).size().x;
     let label_end_x = head_rect.min.x + 10.0 + label_w;
 
-    let has_folder = !deck.debug_files_empty && !deck.workspace.as_os_str().is_empty() && deck.workspace.is_dir();
+    let has_folder = deck.has_folder();
     let active_proj_name = projects.iter().find(|p| p.active).map(|p| p.name.as_str());
     let branch_name = deck.git.status().and_then(|s| s.branch.clone());
-    let ctx_text = if has_folder { files_context_label(active_proj_name, branch_name.as_deref()) } else { String::new() };
+    let marks = git_marks(deck);
+    let (meta_text, meta_strong) = if has_folder {
+        files_header_meta(deck.tree.changed_only, marks.len(), active_proj_name, branch_name.as_deref())
+    } else {
+        (String::new(), false)
+    };
 
-    let mut icons_left_x = head_rect.max.x - 4.0;
-    if !deck.files_collapsed {
-        let avail_after_label = (head_rect.max.x - 4.0 - (label_end_x + 8.0)).max(0.0);
-        let actions = files_header_actions(avail_after_label);
-        for &action in actions.iter().rev() {
-            let btn_r = Rect::from_min_size(Pos2::new(icons_left_x - 20.0, head_rect.min.y + 2.0), Vec2::new(20.0, 20.0));
-            icons_left_x = btn_r.min.x;
+    // Clicking "FILES" (and the context label area) collapses/expands the FILES section; right click opens the
+    // menu with the actions that are not always on the header. Created first: the buttons, created later, win the click.
+    let toggle_resp = clickable(ui, head_rect, Id::new("files-header-toggle"));
+    if toggle_resp.secondary_clicked() && has_folder {
+        let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(head_rect.center());
+        ctx.data_mut(|d| d.insert_temp(files_menu_key(), Some(pos)));
+    }
+
+    // The collapse-all button fades in while the pointer is over the FILES area (header and tree).
+    let area = Rect::from_min_max(head_rect.min, if deck.files_collapsed { head_rect.max } else { rect.max });
+    let over_area = !dragging && ctx.input(|i| i.pointer.hover_pos()).is_some_and(|ptr| area.contains(ptr));
+    let hover_t = ctx.animate_bool_with_time(Id::new("files-hover-actions"), over_area, 0.12);
+
+    let mut icons_left_x = head_rect.max.x - FILES_BTN_EDGE;
+    let mut slot_w = 0.0;
+    if has_folder && !deck.files_collapsed {
+        let avail_after_label = (icons_left_x - (label_end_x + 8.0)).max(0.0);
+        let mut actions = vec![FilesAction::ChangedOnly, FilesAction::Filter];
+        if files_hover_slot_fits(avail_after_label) {
+            actions.push(FilesAction::CollapseAll);
+        }
+        for action in actions {
+            let hover_only = action == FilesAction::CollapseAll;
+            let btn_r = Rect::from_min_size(
+                Pos2::new(icons_left_x - FILES_BTN, head_rect.min.y + (FILES_HEAD_H - FILES_BTN) / 2.0),
+                Vec2::splat(FILES_BTN),
+            );
+            icons_left_x = btn_r.min.x - FILES_BTN_GAP;
+            let vis = if hover_only { hover_t } else { 1.0 };
+            if hover_only {
+                slot_w = (FILES_BTN + FILES_BTN_GAP) * hover_t;
+                if hover_t <= 0.0 {
+                    continue;
+                }
+            }
             let is_lit = match action {
                 FilesAction::Filter => deck.tree.filter_open || !deck.tree.filter.trim().is_empty(),
                 FilesAction::ChangedOnly => deck.tree.changed_only,
-                FilesAction::CollapseAll | FilesAction::Refresh => false,
+                FilesAction::CollapseAll => false,
             };
-            let resp = if has_folder {
-                clickable(ui, btn_r, Id::new(("files-hdr-btn", action as u8)))
-            } else {
-                ui.interact(btn_r, Id::new(("files-hdr-btn", action as u8)), Sense::hover())
-            };
-            let hov = resp.hovered() && !dragging && has_folder;
-            if is_lit && has_folder {
-                painter.rect_filled(btn_r, 4.0, theme::pal().selected);
+            let resp = clickable(ui, btn_r, Id::new(("files-hdr-btn", action as u8)));
+            let hov = resp.hovered() && !dragging;
+            let p = theme::pal();
+            if is_lit {
+                painter.rect_filled(btn_r, 5.0, theme::with_opacity(p.selected, vis));
             } else if hov {
-                painter.rect_filled(btn_r, 4.0, theme::pal().hover);
+                painter.rect_filled(btn_r, 5.0, theme::with_opacity(p.hover, vis));
             }
-            let fg = if !has_folder {
-                theme::pal().text_faint
-            } else if is_lit {
-                theme::pal().text_strong
+            let fg = if is_lit {
+                p.text_strong
             } else if hov {
-                theme::pal().text
+                p.text
             } else {
-                theme::pal().text_2
+                p.text_3
             };
+            let fg = theme::with_opacity(fg, vis);
             match action {
                 FilesAction::Filter => paint_filter_icon(&painter, btn_r.center(), fg),
                 FilesAction::ChangedOnly => paint_changed_icon(&painter, btn_r.center(), fg),
                 FilesAction::CollapseAll => paint_collapse_all(&painter, btn_r.center(), fg),
-                FilesAction::Refresh => deck.icons.paint(&painter, Icon::Refresh, btn_r.center(), 13.0, fg, 0.0),
             }
             let tooltip = match action {
                 FilesAction::Filter => t!("Filter files"),
-                FilesAction::ChangedOnly => t!("Changed files only"),
+                FilesAction::ChangedOnly => t!("Show changed files only"),
                 FilesAction::CollapseAll => t!("Collapse all folders"),
-                FilesAction::Refresh => t!("Refresh explorer"),
             };
-            if tip(resp, tooltip).clicked() && has_folder {
+            if tip(resp, tooltip).clicked() {
                 match action {
                     FilesAction::Filter => {
                         deck.tree.filter_open = !deck.tree.filter_open;
@@ -277,41 +314,38 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
                         deck.tree.changed_only = !deck.tree.changed_only;
                         deck.persist_layout();
                     }
-                    FilesAction::CollapseAll => {
-                        deck.tree.expanded.retain(|p| p.is_empty());
-                        deck.tree.expanded.insert(String::new());
-                    }
-                    FilesAction::Refresh => {
-                        deck.refresh_tree();
-                        deck.tree.expanded.insert(String::new());
-                    }
+                    FilesAction::CollapseAll => collapse_all_folders(deck),
                 }
             }
         }
     }
+    if hover_t > 0.0 && hover_t < 1.0 {
+        // The fade is a few frames: keep drawing until it settles.
+        ctx.request_repaint();
+    }
 
-    // Context text "<project> · <branch>" in meta(10) text_3 with ellipsis
+    // Context text ("<project> · <branch>", or "N changed") in meta(10), with ellipsis; it gives way to the
+    // collapse-all button as it fades in.
     let ctx_left = label_end_x + 5.0;
-    let ctx_right = icons_left_x - 2.0;
-    if !ctx_text.is_empty() && ctx_right - ctx_left >= 24.0 {
-        let g = galley_trunc(&painter, &ctx_text, theme::meta(10.0), theme::pal().text_3, ctx_right - ctx_left);
+    let ctx_right = icons_left_x - 2.0 - if has_folder { slot_w } else { 0.0 };
+    if !meta_text.is_empty() && ctx_right - ctx_left >= 24.0 {
+        let color = if meta_strong { theme::pal().text_2 } else { theme::pal().text_3 };
+        let g = galley_trunc(&painter, &meta_text, theme::meta(10.0), color, ctx_right - ctx_left);
         place(
             &painter,
             Rect::from_min_max(Pos2::new(ctx_left, head_rect.min.y), Pos2::new(ctx_right, head_rect.max.y)),
             Align2::LEFT_CENTER,
             g,
-            theme::pal().text_3,
+            color,
         );
     }
 
-    // Clicking "FILES" (and the context label area) collapses/expands the FILES section
-    let toggle_rect = Rect::from_min_max(head_rect.min, Pos2::new(icons_left_x.max(label_end_x + 4.0), head_rect.max.y));
-    let toggle_resp = clickable(ui, toggle_rect, Id::new("files-header-toggle"));
     let toggle_tip = if deck.files_collapsed { t!("Expand files") } else { t!("Collapse files") };
     if tip(toggle_resp, toggle_tip).clicked() {
         deck.files_collapsed = !deck.files_collapsed;
         deck.persist_layout();
     }
+    show_files_menu(deck, &ctx);
 
     if deck.files_collapsed {
         return;
@@ -319,8 +353,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
 
     // ---------- Empty state when the project has no folder ----------
     if !has_folder {
-        let empty_r = Rect::from_min_max(Pos2::new(rect.min.x, top_y + 4.0), rect.max);
-        draw_no_folder_empty_state(deck, ui, &painter, empty_r, dragging);
+        let empty_r = Rect::from_min_max(Pos2::new(rect.min.x, top_y), rect.max);
+        draw_no_folder_empty_state(deck, ui, &painter, empty_r);
         return;
     }
 
@@ -376,7 +410,6 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     // ---------- File list (flattened when filter or changed_only is active; tree otherwise) ----------
     let list_top = top_y + 2.0;
     let list_rect = Rect::from_min_max(Pos2::new(rect.min.x, list_top), rect.max);
-    let marks = git_marks(deck);
     let flatten_active = !deck.tree.filter.trim().is_empty() || deck.tree.changed_only;
 
     if flatten_active {
@@ -461,35 +494,101 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     }
 }
 
-/// Empty state of the `FILES` section when the project has no folder: `"This project has no folder"` + Ghost `"Open folder…"`.
-fn draw_no_folder_empty_state(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, rect: Rect, _dragging: bool) {
+/// Empty state of the `FILES` section when the project has no folder: the message in `text_2`, wrapped and
+/// centered, and 10 px under it a Secondary `"Open folder…"` button with the folder glyph. The block starts 16 px
+/// under the header (`rect.min.y` is the header's bottom edge).
+fn draw_no_folder_empty_state(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, rect: Rect) {
     let p = theme::pal();
-    let msg_r = Rect::from_min_size(Pos2::new(rect.min.x + 10.0, rect.min.y + 12.0), Vec2::new((rect.width() - 20.0).max(1.0), 18.0));
-    let msg_g = galley_trunc(painter, t!("This project has no folder"), theme::ui(11.5), p.text_3, msg_r.width());
-    place(painter, msg_r, Align2::CENTER_CENTER, msg_g, p.text_3);
+    let wrap_w = (rect.width() - 20.0).max(40.0);
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = wrap_w;
+    job.halign = egui::Align::Center;
+    job.append(
+        t!("This project has no folder"),
+        0.0,
+        egui::TextFormat { font_id: theme::ui(12.0), color: p.text_2, line_height: Some(12.0 * 1.4), ..Default::default() },
+    );
+    let msg = painter.layout_job(job);
+    let top = rect.min.y + 16.0;
+    let msg_h = msg.size().y;
+    painter.galley(Pos2::new(rect.center().x, top), msg, p.text_2);
 
     let label = t!("Open folder…");
-    let btn_w = button_width(painter, label, ButtonKind::Ghost).min((rect.width() - 16.0).max(40.0));
-    let btn_r = Rect::from_center_size(Pos2::new(rect.center().x, msg_r.max.y + 16.0), Vec2::new(btn_w, 24.0));
-    if button(ui, btn_r, Id::new("files-empty-open-folder"), label, ButtonKind::Ghost).clicked() {
+    let btn_w = super::folder_button_width(painter, label).min((rect.width() - 12.0).max(40.0));
+    let btn_r = Rect::from_center_size(
+        Pos2::new(rect.center().x, top + msg_h + 10.0 + super::FOLDER_BUTTON_H / 2.0),
+        Vec2::new(btn_w, super::FOLDER_BUTTON_H),
+    );
+    if super::folder_button(ui, btn_r, Id::new("files-empty-open-folder"), label).clicked() {
         deck.pick_workspace();
+    }
+}
+
+/// Folds every folder of the explorer back to the root.
+fn collapse_all_folders(deck: &mut Deck) {
+    deck.tree.expanded.retain(|p| p.is_empty());
+    deck.tree.expanded.insert(String::new());
+}
+
+fn files_menu_key() -> Id {
+    Id::new("files-ctx-menu")
+}
+
+/// Right-click menu of the `FILES` header: the actions that are not always on it.
+fn show_files_menu(deck: &mut Deck, ctx: &egui::Context) {
+    let Some(pos) = ctx.data(|d| d.get_temp::<Option<Pos2>>(files_menu_key())).flatten() else { return };
+    let (w, item_h) = (190.0, 26.0);
+    let h = item_h * 2.0 + 8.0;
+    let pos = super::menus::keep_on_screen(ctx, pos, Vec2::new(w, h));
+    let menu_rect = Rect::from_min_size(pos, Vec2::new(w, h));
+    let mut picked = None;
+    egui::Area::new(Id::new("files-ctx-menu-area")).order(egui::Order::Foreground).fixed_pos(pos).constrain(false).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(menu_rect.size(), Sense::hover());
+        let p = ui.painter();
+        super::shadow(p, rect, 8, 8, 24, theme::with_alpha(theme::pal().shadow, 0.55));
+        super::frame(p, rect, 6.0, theme::pal().popup, theme::pal().glass_border);
+        for (i, label) in [t!("Collapse all folders"), t!("Refresh explorer")].into_iter().enumerate() {
+            let r = Rect::from_min_size(Pos2::new(rect.min.x + 4.0, rect.min.y + 4.0 + item_h * i as f32), Vec2::new(w - 8.0, item_h));
+            let resp = clickable(ui, r, Id::new(("files-ctx-item", i)));
+            if resp.hovered() {
+                p.rect_filled(r, 4.0, theme::pal().hover);
+            }
+            text_in(p, r.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, label, theme::ui(12.5), theme::pal().text);
+            if resp.clicked() {
+                picked = Some(i);
+            }
+        }
+    });
+    match picked {
+        Some(0) => collapse_all_folders(deck),
+        Some(_) => {
+            deck.refresh_tree();
+            deck.tree.expanded.insert(String::new());
+        }
+        None => {}
+    }
+    let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !menu_rect.contains(p)));
+    if picked.is_some() || outside || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ctx.data_mut(|d| d.insert_temp(files_menu_key(), None::<Pos2>));
     }
 }
 
 /// Draws the 12 px filter (magnifying glass) icon on the painter.
 fn paint_filter_icon(painter: &egui::Painter, center: Pos2, color: Color32) {
-    let s = Stroke::new(1.3, color);
+    let s = Stroke::new(FILES_GLYPH_STROKE, color);
     let c = center + Vec2::new(-1.0, -1.0);
-    painter.circle_stroke(c, 3.4, s);
-    painter.line_segment([c + Vec2::new(2.4, 2.4), center + Vec2::new(4.3, 4.3)], s);
+    painter.circle_stroke(c, 3.6, s);
+    painter.line_segment([c + Vec2::new(2.6, 2.6), center + Vec2::new(5.0, 5.0)], s);
 }
 
-/// Draws the 12 px "changed files only" icon (a git diff dot on a vertical line) on the painter.
+/// Draws the 12 px "changed files only" icon: a "±" (a plus over a minus).
 fn paint_changed_icon(painter: &egui::Painter, center: Pos2, color: Color32) {
-    let s = Stroke::new(1.3, color);
-    painter.circle_stroke(center, 2.2, s);
-    painter.line_segment([center + Vec2::new(0.0, -4.8), center + Vec2::new(0.0, -2.2)], s);
-    painter.line_segment([center + Vec2::new(0.0, 2.2), center + Vec2::new(0.0, 4.8)], s);
+    let s = Stroke::new(FILES_GLYPH_STROKE, color);
+    let plus = center + Vec2::new(0.0, -2.0);
+    painter.line_segment([plus + Vec2::new(-3.0, 0.0), plus + Vec2::new(3.0, 0.0)], s);
+    painter.line_segment([plus + Vec2::new(0.0, -3.0), plus + Vec2::new(0.0, 3.0)], s);
+    let y = center.y + 5.0;
+    painter.line_segment([Pos2::new(center.x - 3.0, y), Pos2::new(center.x + 3.0, y)], s);
 }
 
 /// The Git letter of a changed file (`M`, `A`, `D`, `R`, `U`, `?`).
@@ -512,14 +611,14 @@ fn git_marks(deck: &Deck) -> HashMap<String, char> {
         .collect()
 }
 
-/// Draws the VS Code "Collapse all folders" icon on the painter: a square with "−"
-/// and, behind it, the edge of another square (above and to the right).
+/// Draws the "Collapse all folders" icon on the 12 px grid: a square with "−" and, behind it, the edge of
+/// another square (above and to the right).
 fn paint_collapse_all(painter: &egui::Painter, center: Pos2, color: Color32) {
-    let stroke = Stroke::new(1.0, color);
-    let front = Rect::from_center_size(center + Vec2::new(-1.0, 1.0), Vec2::splat(9.0));
+    let stroke = Stroke::new(FILES_GLYPH_STROKE, color);
+    let front = Rect::from_center_size(center + Vec2::new(-1.0, 1.0), Vec2::splat(8.0));
     painter.rect_stroke(front, 1.0, stroke, egui::StrokeKind::Inside);
-    painter.line_segment([Pos2::new(front.min.x + 2.5, front.center().y), Pos2::new(front.max.x - 2.5, front.center().y)], stroke);
-    let (x0, y0, x1, y1) = (front.min.x + 2.5, front.min.y - 2.5, front.max.x + 2.5, front.max.y - 2.5);
+    painter.line_segment([Pos2::new(front.min.x + 2.0, front.center().y), Pos2::new(front.max.x - 2.0, front.center().y)], stroke);
+    let (x0, y0, x1, y1) = (front.min.x + 2.0, front.min.y - 2.0, front.max.x + 2.0, front.max.y - 2.0);
     painter.line_segment([Pos2::new(x0, front.min.y), Pos2::new(x0, y0)], stroke);
     painter.line_segment([Pos2::new(x0, y0), Pos2::new(x1, y0)], stroke);
     painter.line_segment([Pos2::new(x1, y0), Pos2::new(x1, y1)], stroke);
@@ -762,13 +861,17 @@ mod tests {
     }
 
     #[test]
-    fn files_header_actions_drop_collapse_then_refresh_at_narrow_widths() {
-        assert_eq!(
-            files_header_actions(120.0),
-            &[FilesAction::Filter, FilesAction::ChangedOnly, FilesAction::CollapseAll, FilesAction::Refresh]
-        );
-        assert_eq!(files_header_actions(72.0), &[FilesAction::Filter, FilesAction::ChangedOnly, FilesAction::Refresh]);
-        assert_eq!(files_header_actions(48.0), &[FilesAction::Filter, FilesAction::ChangedOnly]);
+    fn the_collapse_all_slot_needs_room_for_three_buttons() {
+        assert!(files_hover_slot_fits(91.0));
+        assert!(files_hover_slot_fits(70.0));
+        assert!(!files_hover_slot_fits(69.0));
+    }
+
+    #[test]
+    fn the_header_meta_is_the_changed_count_in_the_changed_only_view() {
+        assert_eq!(files_header_meta(false, 3, Some("holt"), Some("dev")), ("holt · dev".to_owned(), false));
+        assert_eq!(files_header_meta(true, 3, Some("holt"), Some("dev")), ("3 changed".to_owned(), true));
+        assert_eq!(files_header_meta(true, 1, Some("holt"), Some("dev")), ("1 changed".to_owned(), true));
     }
 
     #[test]
