@@ -859,6 +859,334 @@ fn unified_diff(old: &str, new: &str, created: bool) -> String {
 mod tests {
     use super::*;
 
+    // Server-side recordings of the dialogue. Written from the shapes in the ACP schema and the registry's agents, not
+    // recorded from a live CLI (none was installed when they were made); see `memory/learnings/acp-protocol-traps.md`.
+    const TEXT: &str = include_str!("../../tests/data/acp-text.jsonl");
+    const TOOLS: &str = include_str!("../../tests/data/acp-tools.jsonl");
+    const PERMISSION: &str = include_str!("../../tests/data/acp-permission.jsonl");
+    const CANCEL: &str = include_str!("../../tests/data/acp-cancel.jsonl");
+    const LOAD: &str = include_str!("../../tests/data/acp-load.jsonl");
+
+    /// A protocol that sent its `initialize` (the recording's answers are matched by id: 1 initialize, 2 the session, 3 the
+    /// first prompt).
+    fn ready(resume: Option<&str>) -> AcpProtocol {
+        let mut p = AcpProtocol::new(resume.map(str::to_owned), Path::new("/work/project"), None);
+        let _ = p.open();
+        p
+    }
+
+    /// What the interface would hold after the sample, and the lines Holt wrote in answer.
+    fn feed(proto: &mut AcpProtocol, t: &mut Transcript, sample: &str) -> Vec<String> {
+        let mut replies = Vec::new();
+        for line in sample.lines() {
+            let parsed = proto.parse(line);
+            replies.extend(parsed.reply);
+            for ev in &parsed.events {
+                t.apply(ev);
+            }
+        }
+        replies
+    }
+
+    fn user(p: &mut AcpProtocol, t: &mut Transcript, text: &str) -> Vec<String> {
+        t.push_user(text, None);
+        p.user_message(text)
+    }
+
+    fn json_lines(lines: &[String]) -> Vec<Value> {
+        lines.iter().map(|l| serde_json::from_str(l).expect("json")).collect()
+    }
+
+    fn tools(t: &Transcript) -> Vec<&super::super::ToolCall> {
+        t.items.iter().filter_map(|i| if let Item::Tool(c) = i { Some(c) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_handshake_is_initialize_then_a_session_in_the_tabs_folder_then_the_waiting_message() {
+        let mut p = AcpProtocol::new(None, Path::new("/work/project"), None);
+        let open = json_lines(&p.open());
+        assert_eq!(open[0]["method"], "initialize");
+        assert_eq!(open[0]["jsonrpc"], "2.0");
+        assert_eq!(open[0]["params"]["clientCapabilities"]["terminal"], false);
+        assert_eq!(open[0]["params"]["clientCapabilities"]["fs"]["readTextFile"], false);
+        let mut t = Transcript::default();
+        assert!(user(&mut p, &mut t, "hello").is_empty(), "a message typed before the session exists waits");
+        let first = json_lines(&p.parse(TEXT.lines().next().unwrap()).reply);
+        assert_eq!(first[0]["method"], "session/new");
+        assert_eq!(first[0]["params"], json!({ "cwd": "/work/project", "mcpServers": [] }));
+        let parsed = p.parse(TEXT.lines().nth(1).unwrap());
+        assert!(matches!(&parsed.events[0], ChatEvent::Init { session, model, .. } if session == "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a" && model == "OpenCode Zen/Big Pickle"));
+        let prompt = json_lines(&parsed.reply);
+        assert_eq!(prompt[0]["method"], "session/prompt");
+        assert_eq!(prompt[0]["params"]["sessionId"], "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a");
+        assert_eq!(prompt[0]["params"]["prompt"], json!([{ "type": "text", "text": "hello" }]));
+    }
+
+    #[test]
+    fn thoughts_and_message_chunks_become_a_thinking_block_and_one_streamed_message() {
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        let _ = user(&mut p, &mut t, "hi");
+        feed(&mut p, &mut t, TEXT);
+        assert!(matches!(&t.items[1], Item::Thinking(x) if x == "The user greets me. I answer briefly."), "{:?}", t.items);
+        assert!(matches!(&t.items[2], Item::Assistant { text, streaming: false, .. } if text == "Hello! How can I help with this project?"));
+        assert_eq!(t.items.len(), 3);
+        assert!(!t.busy(), "the stop reason ended the turn");
+        assert_eq!(t.commands, ["init", "review"]);
+        assert_eq!((t.context_tokens, t.context_window), (1523, 200_000));
+    }
+
+    #[test]
+    fn the_chunks_stream_as_deltas_before_the_message_is_complete() {
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        let _ = user(&mut p, &mut t, "hi");
+        let lines: Vec<&str> = TEXT.lines().take(7).collect();
+        for l in lines {
+            for ev in p.parse(l).events {
+                t.apply(&ev);
+            }
+        }
+        assert!(matches!(t.items.last(), Some(Item::Assistant { streaming: true, text, .. }) if text == "Hello! How can I help "), "{:?}", t.items);
+        assert_eq!(t.phase(), Some(super::super::Phase::Writing));
+    }
+
+    #[test]
+    fn tool_calls_take_the_name_of_their_kind_and_the_latest_input_and_result() {
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        let _ = user(&mut p, &mut t, "fix it");
+        feed(&mut p, &mut t, TOOLS);
+        let calls = tools(&t);
+        assert_eq!(calls.len(), 3, "the plan is not a call");
+        assert_eq!((calls[0].name.as_str(), calls[0].input["file_path"].as_str()), ("Read", Some("/work/project/notes.txt")));
+        assert_eq!(calls[0].outcome.as_ref().map(|o| o.text.as_str()), Some("one\ntwo\nthree\n"));
+        assert_eq!((calls[1].name.as_str(), calls[1].input["file_path"].as_str()), ("Edit", Some("/work/project/notes.txt")));
+        let patch = &calls[1].outcome.as_ref().expect("result").patch;
+        assert_eq!(patch.len(), 1);
+        assert_eq!(patch[0].lines, [" one", "-two", "+TWO", " three"]);
+        assert_eq!((calls[2].name.as_str(), calls[2].input["command"].as_str()), ("Bash", Some("cargo test")));
+        let failed = calls[2].outcome.as_ref().expect("result");
+        assert!(failed.is_error && failed.text == "error: could not compile");
+        assert!(matches!(t.items.last(), Some(Item::Assistant { text, .. }) if text.contains("tests do not compile")));
+        assert!(!t.busy());
+    }
+
+    #[test]
+    fn a_permission_is_a_card_and_each_answer_picks_the_matching_option() {
+        let option = |allow: bool, rules: &[Value]| {
+            let mut p = ready(None);
+            let mut t = Transcript::default();
+            let _ = user(&mut p, &mut t, "clean");
+            let lines: Vec<&str> = PERMISSION.lines().take(4).collect();
+            let mut card = None;
+            for l in lines {
+                for ev in p.parse(l).events {
+                    if let ChatEvent::Permission(r) = &ev {
+                        card = Some(r.clone());
+                    }
+                    t.apply(&ev);
+                }
+            }
+            let card = card.expect("a card");
+            assert_eq!((card.request_id.as_str(), card.tool.as_str(), card.tool_use_id.as_str()), ("0", "Bash", "call_bash2"));
+            assert_eq!(card.input["command"], "rm -rf build");
+            assert_eq!(card.suggestions, vec![json!("always")], "the allow_always option is the session suggestion");
+            assert_eq!(t.phase(), Some(super::super::Phase::WaitingForYou));
+            let answer = json_lines(&p.answer_permission("0", allow, &card.input, "no", rules));
+            // Answered once: a second answer finds nothing.
+            assert!(p.answer_permission("0", allow, &card.input, "no", rules).is_empty());
+            assert_eq!(answer[0]["id"], 0);
+            answer[0]["result"]["outcome"].clone()
+        };
+        assert_eq!(option(true, &[]), json!({ "outcome": "selected", "optionId": "once" }));
+        assert_eq!(option(true, &[json!("always")]), json!({ "outcome": "selected", "optionId": "always" }));
+        assert_eq!(option(false, &[]), json!({ "outcome": "selected", "optionId": "reject" }));
+    }
+
+    #[test]
+    fn without_a_matching_option_the_answer_falls_back_or_cancels() {
+        let ask = |options: Value| {
+            let mut p = ready(None);
+            let line = json!({ "jsonrpc": "2.0", "id": "req-1", "method": "session/request_permission",
+                "params": { "sessionId": "s", "toolCall": { "toolCallId": "t", "title": "x" }, "options": options } });
+            let parsed = p.parse(&line.to_string());
+            let card = parsed
+                .events
+                .iter()
+                .find_map(|e| if let ChatEvent::Permission(c) = e { Some(c) } else { None })
+                .unwrap_or_else(|| panic!("{:?}", parsed.events));
+            assert_eq!((card.request_id.as_str(), card.tool.as_str()), ("req-1", "Tool"), "an unknown kind is a generic call");
+            (p, card.suggestions.clone())
+        };
+        // Only "always" and "reject always" exist: allowing and denying use them.
+        let (mut p, suggestions) = ask(json!([{ "optionId": "a", "kind": "allow_always" }, { "optionId": "r", "kind": "reject_always" }]));
+        assert_eq!(suggestions, vec![json!("a")]);
+        let allow = json_lines(&p.answer_permission("req-1", true, &Value::Null, "", &[]));
+        assert_eq!(allow[0]["result"]["outcome"]["optionId"], "a");
+        assert_eq!(allow[0]["id"], "req-1", "a string id goes back as a string");
+        let (mut p, _) = ask(json!([{ "optionId": "a", "kind": "allow_always" }, { "optionId": "r", "kind": "reject_always" }]));
+        let deny = json_lines(&p.answer_permission("req-1", false, &Value::Null, "", &[]));
+        assert_eq!(deny[0]["result"]["outcome"]["optionId"], "r");
+        // No way to say no: the request is cancelled.
+        let (mut p, suggestions) = ask(json!([{ "optionId": "o", "kind": "allow_once" }]));
+        assert!(suggestions.is_empty(), "no allow_always: no \"for this session\" button");
+        let deny = json_lines(&p.answer_permission("req-1", false, &Value::Null, "", &[]));
+        assert_eq!(deny[0]["result"]["outcome"], json!({ "outcome": "cancelled" }));
+    }
+
+    #[test]
+    fn an_interrupt_cancels_the_session_and_the_cancelled_prompt_ends_the_turn_with_the_call_closed() {
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        // Nothing runs yet: nothing to cancel.
+        assert!(matches!(p.interrupt(), Interrupt::Lines(l) if l.is_empty()));
+        let _ = p.parse(CANCEL.lines().next().unwrap());
+        let _ = user(&mut p, &mut t, "run sleep");
+        let lines: Vec<&str> = CANCEL.lines().take(4).collect();
+        for l in &lines[1..] {
+            for ev in p.parse(l).events {
+                t.apply(&ev);
+            }
+        }
+        let Interrupt::Lines(sent) = p.interrupt() else { panic!("a notification, not a signal") };
+        let sent = json_lines(&sent);
+        assert_eq!(sent[0], json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": "ses_7f3a2c1d9e0b4a5f8c6d1e2f3a" } }));
+        for ev in p.parse(CANCEL.lines().last().unwrap()).events {
+            t.apply(&ev);
+        }
+        assert!(t.items.iter().any(|i| matches!(i, Item::Notice { text, .. } if text == "Interrupted.")));
+        assert!(!t.busy());
+        assert!(tools(&t)[0].outcome.as_ref().is_some_and(|o| o.is_error), "the unfinished call is closed");
+    }
+
+    #[test]
+    fn a_saved_conversation_is_loaded_and_replayed_without_the_instructions() {
+        let mut p = ready(Some("ses_old"));
+        let mut t = Transcript { history_pending: true, ..Transcript::default() };
+        let mut typed = Transcript::default();
+        let _ = &mut typed;
+        t.push_user("typed while starting", None);
+        let init = p.parse(LOAD.lines().next().unwrap());
+        let load = json_lines(&init.reply);
+        assert_eq!(load[0]["method"], "session/load");
+        assert_eq!(load[0]["params"], json!({ "sessionId": "ses_old", "cwd": "/work/project", "mcpServers": [] }));
+        // The message that waits goes to the loaded session once it is ready.
+        assert!(p.user_message("typed while starting").is_empty());
+        let mut sent = Vec::new();
+        for l in LOAD.lines().skip(1) {
+            let parsed = p.parse(l);
+            sent.extend(parsed.reply);
+            for ev in &parsed.events {
+                t.apply(ev);
+            }
+        }
+        let items = &t.items;
+        assert_eq!(items.len(), 7, "{items:?}");
+        assert!(matches!(&items[0], Item::User { text, from: None } if text == "Create hello.txt"), "{items:?}");
+        assert!(matches!(&items[1], Item::Assistant { text, .. } if text == "Creating the file."));
+        assert!(matches!(&items[2], Item::Tool(c) if c.name == "Edit" && c.outcome.as_ref().is_some_and(|o| o.patch[0].lines == ["+hi"])));
+        assert!(matches!(&items[3], Item::Assistant { text, .. } if text == "Done."));
+        assert!(matches!(&items[4], Item::User { text, .. } if text == "Thanks"));
+        assert!(matches!(&items[5], Item::Assistant { text, .. } if text == "You are welcome."));
+        assert!(matches!(&items[6], Item::User { text, .. } if text == "typed while starting"));
+        assert!(!t.history_pending);
+        assert_eq!(t.session.as_deref(), Some("ses_old"));
+        assert_eq!(json_lines(&sent)[0]["params"]["sessionId"], "ses_old");
+    }
+
+    #[test]
+    fn a_load_that_fails_starts_a_new_session_and_says_so() {
+        let mut p = ready(Some("gone"));
+        let _ = p.parse(LOAD.lines().next().unwrap());
+        let failed = p.parse(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"Session not found"}}"#);
+        assert!(matches!(&failed.events[0], ChatEvent::Notice { text, error: false } if text.contains("Session not found")));
+        assert_eq!(json_lines(&failed.reply)[0]["method"], "session/new");
+    }
+
+    #[test]
+    fn an_agent_that_cannot_load_sessions_gets_a_new_one_without_trying() {
+        let mut p = ready(Some("old"));
+        let parsed = p.parse(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{}}}"#);
+        assert!(matches!(&parsed.events[0], ChatEvent::Notice { text, error: false } if text.contains("cannot resume")));
+        assert_eq!(json_lines(&parsed.reply)[0]["method"], "session/new");
+    }
+
+    #[test]
+    fn the_stop_reasons_that_are_not_a_plain_end_say_why() {
+        let end = |reason: &str| {
+            let mut p = ready(None);
+            let _ = p.parse(TEXT.lines().next().unwrap());
+            let _ = p.parse(TEXT.lines().nth(1).unwrap());
+            let _ = p.user_message("hi");
+            p.parse(&json!({ "jsonrpc": "2.0", "id": 3, "result": { "stopReason": reason } }).to_string()).events
+        };
+        assert!(matches!(end("end_turn").last(), Some(ChatEvent::Result(r)) if !r.is_error));
+        assert!(matches!(end("max_tokens").last(), Some(ChatEvent::Result(r)) if r.is_error && r.error.contains("output tokens")));
+        assert!(matches!(end("refusal").last(), Some(ChatEvent::Result(r)) if r.is_error && r.error.contains("refused")));
+        assert!(matches!(end("cancelled").first(), Some(ChatEvent::Interrupted)));
+    }
+
+    #[test]
+    fn requests_holt_never_advertised_are_refused_and_noise_is_ignored() {
+        let mut p = ready(None);
+        let parsed = p.parse(r#"{"jsonrpc":"2.0","id":9,"method":"fs/read_text_file","params":{"sessionId":"s","path":"/etc/passwd"}}"#);
+        assert!(parsed.events.is_empty());
+        let reply = json_lines(&parsed.reply);
+        assert_eq!((reply[0]["id"].clone(), reply[0]["error"]["code"].clone()), (json!(9), json!(-32601)));
+        let parsed = p.parse(r#"{"jsonrpc":"2.0","id":10,"method":"terminal/create","params":{"command":"ls"}}"#);
+        assert_eq!(json_lines(&parsed.reply)[0]["error"]["code"], -32601);
+        for noise in ["", "not json", "{\"jsonrpc\":\"2.0\"", "[]", "{\"id\":null}", "{\"method\":\"$/progress\"}", "{\"id\":\"x\",\"result\":1}"] {
+            let parsed = p.parse(noise);
+            assert!(parsed.events.is_empty() && parsed.reply.is_empty(), "{noise:?}");
+        }
+    }
+
+    #[test]
+    fn a_session_error_ends_the_waiting_messages_and_hints_at_the_login() {
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        let _ = user(&mut p, &mut t, "hi");
+        let _ = p.parse(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[{"id":"login","name":"Log in"}]}}"#);
+        let failed = p.parse(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required"}}"#);
+        assert!(matches!(&failed.events[0], ChatEvent::Notice { text, error: true } if text.contains("Authentication required") && text.contains("Terminal view")));
+        for ev in &failed.events {
+            t.apply(ev);
+        }
+        assert!(!t.busy());
+    }
+
+    #[test]
+    fn the_instructions_lead_only_the_first_prompt_of_a_new_conversation() {
+        let mut p = AcpProtocol::new(None, Path::new("/w"), Some("Rules of Holt".into()));
+        let _ = p.open();
+        let _ = p.parse(TEXT.lines().next().unwrap());
+        let first = json_lines(&p.user_message("one").into_iter().chain(p.parse(TEXT.lines().nth(1).unwrap()).reply).collect::<Vec<_>>());
+        assert_eq!(first[0]["params"]["prompt"][0]["text"], "<holt-instructions>\nRules of Holt\n</holt-instructions>\n\none");
+        let _ = p.parse(r#"{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}"#);
+        assert_eq!(json_lines(&p.user_message("two"))[0]["params"]["prompt"][0]["text"], "two");
+    }
+
+    #[test]
+    fn the_phase_follows_the_kind_of_call() {
+        use super::super::Phase;
+        let mut p = ready(None);
+        let mut t = Transcript::default();
+        let _ = user(&mut p, &mut t, "go");
+        let mut run = |line: Value| {
+            for ev in p.parse(&line.to_string()).events {
+                t.apply(&ev);
+            }
+            t.phase()
+        };
+        let call = |id: &str, kind: &str, raw: Value| json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "s",
+            "update": { "sessionUpdate": "tool_call", "toolCallId": id, "title": kind, "kind": kind, "status": "in_progress", "rawInput": raw } } });
+        assert_eq!(run(call("a", "execute", json!({ "command": "cargo test" }))), Some(Phase::Testing));
+        assert_eq!(run(call("b", "read", json!({ "filePath": "/x" }))), Some(Phase::Reading));
+        assert_eq!(run(call("c", "edit", json!({}))), Some(Phase::Editing));
+        assert_eq!(run(call("d", "fetch", json!({ "url": "https://x" }))), Some(Phase::SearchingWeb));
+    }
+
     #[test]
     fn a_diff_has_the_numbers_of_both_files_and_three_lines_of_context() {
         let old = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
