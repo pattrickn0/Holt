@@ -429,7 +429,7 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
                 p,
                 row.shrink2(Vec2::new(8.0, 0.0)),
                 Align2::LEFT_CENTER,
-                super::titlebar::org_name(org),
+                super::sidebar::org_name(org),
                 theme::ui(12.0),
                 if on { pal.text_strong } else { pal.text },
             );
@@ -439,7 +439,7 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
                 p.line_segment([c + Vec2::new(-4.0, 0.5), c + Vec2::new(-1.5, 3.0)], s);
                 p.line_segment([c + Vec2::new(-1.5, 3.0), c + Vec2::new(4.0, -3.0)], s);
             }
-            if super::tip(r, super::titlebar::org_effect(org)).clicked() {
+            if super::tip(r, super::sidebar::org_effect(org)).clicked() {
                 layout = Some(org);
             }
         }

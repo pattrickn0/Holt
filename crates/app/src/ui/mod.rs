@@ -100,7 +100,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui) {
     }
 
     // ---------- Title bar ----------
-    let menus = titlebar::draw(deck, ui, titlebar, center.max.x);
+    let menus = titlebar::draw(deck, ui, titlebar);
 
     // ---------- Splitters (last in the background: they get the click in the gap between the islands) ----------
     if !collapsed {
