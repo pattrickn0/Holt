@@ -678,10 +678,11 @@ fn row_actions(task: &Task) -> Vec<(String, Act, ButtonKind, &'static str)> {
             ButtonKind::Primary,
             t!("Sends the task back to the agent asking it to merge the base into its branch (git merge) and resolve the conflicting files"),
         )],
+        Mark::Stopped => vec![(TaskAct::Merge.label(task), Act::Task(id(), TaskAct::Merge), ButtonKind::Primary, TaskAct::Merge.tip())],
         Mark::Failed => vec![(TaskAct::Retry.label(task), Act::Task(id(), TaskAct::Retry), ButtonKind::Primary, TaskAct::Retry.tip())],
         _ => Vec::new(),
     };
-    if matches!(mark_of(task), Mark::Review | Mark::Validate) && can_show_diff(task) {
+    if matches!(mark_of(task), Mark::Review | Mark::Validate | Mark::Stopped) && can_show_diff(task) {
         v.push(diff(if task.status == TaskStatus::Validating { t!("What changed") } else { t!("Diff") }));
     }
     v
@@ -976,11 +977,10 @@ fn footer_actions(task: &Task, tab_open: bool) -> Vec<(String, Act, BtnKind, &'s
         Mark::Draft => vec![act(TaskAct::Start, BtnKind::Primary)],
         Mark::Queued => Vec::new(),
         Mark::Running | Mark::Conflict => vec![act(tab, BtnKind::Secondary)],
-        Mark::Review => vec![
+        Mark::Review | Mark::Stopped => vec![
             act(TaskAct::Merge, BtnKind::Primary),
             (t!("Return…").to_owned(), Act::Task(id(), TaskAct::Return), BtnKind::Secondary, TaskAct::Return.tip()),
         ],
-        Mark::Stopped => vec![(t!("Return…").to_owned(), Act::Task(id(), TaskAct::Return), BtnKind::Secondary, TaskAct::Return.tip())],
         Mark::Validate => vec![
             act(TaskAct::Validate, BtnKind::Primary),
             (t!("Reject…").to_owned(), Act::Task(id(), TaskAct::Reject), BtnKind::Secondary, TaskAct::Reject.tip()),
@@ -2565,5 +2565,42 @@ fn form_view(deck: &mut Deck, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use holt_core::{MergeStop, Task, TaskStatus};
+
+    fn sample_task(status: TaskStatus) -> Task {
+        Task { id: "t1".into(), status, started_ms: Some(1000), report: Some("Report".into()), ..Task::default() }
+    }
+
+    #[test]
+    fn stopped_task_actions_include_merge_and_diff() {
+        // Stopped with conflict: row offers "Ask agent to resolve" and diff; footer offers Merge and Return.
+        let mut stopped_conflict = sample_task(TaskStatus::Review);
+        stopped_conflict.merge_stopped = Some(MergeStop { reason: "conflicted".into(), conflict_files: Some(vec!["conflict.rs".into()]) });
+
+        let row_acts = row_actions(&stopped_conflict);
+        assert!(row_acts.iter().any(|(_, act, _, _)| matches!(act, Act::AskAgent(_))));
+        assert!(row_acts.iter().any(|(_, act, _, _)| matches!(act, Act::OpenDiff(_))));
+
+        let foot_acts = footer_actions(&stopped_conflict, true);
+        assert!(foot_acts.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Merge))));
+        assert!(foot_acts.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Return))));
+
+        // Stopped without conflict (e.g. main repo was dirty): row offers Merge and diff; footer offers Merge and Return.
+        let mut stopped_dirty = sample_task(TaskStatus::Review);
+        stopped_dirty.merge_stopped = Some(MergeStop { reason: "main repo dirty".into(), conflict_files: None });
+
+        let row_acts_dirty = row_actions(&stopped_dirty);
+        assert!(row_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Merge))));
+        assert!(row_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::OpenDiff(_))));
+
+        let foot_acts_dirty = footer_actions(&stopped_dirty, true);
+        assert!(foot_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Merge))));
+        assert!(foot_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Return))));
     }
 }

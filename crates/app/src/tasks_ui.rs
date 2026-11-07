@@ -77,8 +77,8 @@ pub fn last_activity(task: &Task) -> u64 {
 }
 
 /// `t12` → 12 (0 if it is not a task id).
-fn task_number(id: &str) -> u64 {
-    id.trim_start_matches('t').parse().unwrap_or(0)
+pub fn task_number(id: &str) -> u64 {
+    id.strip_prefix('t').and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
 /// How many tasks wait for the human's review.
@@ -1241,7 +1241,10 @@ impl Deck {
         }
         match act {
             TaskAct::Start => self.tasks_run(id.to_owned(), TaskOp::Start),
-            TaskAct::Retry => self.tasks_run(id.to_owned(), TaskOp::Start),
+            TaskAct::Retry => {
+                let op = if task.report.is_some() { TaskOp::Merge } else { TaskOp::Start };
+                self.tasks_run(id.to_owned(), op);
+            }
             TaskAct::Merge => self.tasks_run(id.to_owned(), TaskOp::Merge),
             TaskAct::Validate => self.tasks_run(id.to_owned(), TaskOp::Validate),
             TaskAct::Discard => self.tasks_run(id.to_owned(), TaskOp::Discard),
@@ -1269,7 +1272,13 @@ impl Deck {
     /// "Ask the agent to commit" / "…resolve the conflict": sends the task back with the request ready from the refusal reason.
     pub fn tasks_ask_agent(&mut self, id: &str) {
         let Some(task) = self.tasks.task(id) else { return };
-        let Some(feedback) = self.tasks.notice_block.as_ref().and_then(|b| b.return_feedback(task)) else { return };
+        let feedback = self.tasks.notice_block.as_ref().and_then(|b| b.return_feedback(task)).or_else(|| {
+            task.merge_stopped
+                .as_ref()
+                .and_then(|s| s.conflict_files.as_ref())
+                .and_then(|files| MergeBlock::Conflict(files.clone()).return_feedback(task))
+        });
+        let Some(feedback) = feedback else { return };
         self.tasks_run(id.to_owned(), TaskOp::Return(feedback));
     }
 
@@ -1753,6 +1762,18 @@ mod tests {
         let failed_merge = Task { status: TaskStatus::Failed, report: Some("x".into()), ..Task::default() };
         assert!(!TaskAct::Retry.needs_confirm(&failed_start));
         assert!(TaskAct::Retry.needs_confirm(&failed_merge));
+    }
+
+    #[test]
+    fn task_number_parses_only_t_prefixed_identifiers() {
+        assert_eq!(task_number("t1"), 1);
+        assert_eq!(task_number("t12"), 12);
+        assert_eq!(task_number("t0"), 0);
+        assert_eq!(task_number("t999"), 999);
+        assert_eq!(task_number("tt12"), 0);
+        assert_eq!(task_number("12"), 0);
+        assert_eq!(task_number(""), 0);
+        assert_eq!(task_number("invalid"), 0);
     }
 
     #[test]
