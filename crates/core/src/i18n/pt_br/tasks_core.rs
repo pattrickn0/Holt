@@ -60,6 +60,10 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ),
     ("invalid model: \"{model}\"", "modelo inválido: \"{model}\""),
     ("the agent {kind} does not accept choosing a model", "o agente {kind} não aceita escolher modelo"),
+    (
+        "the agent {kind} cannot run shell commands, so it could never deliver a task with ask-agent --task done; choose another agent",
+        "o agente {kind} não executa comandos de shell, então nunca entregaria uma tarefa com ask-agent --task done; escolha outro agente",
+    ),
     ("effort not applicable to {kind}: {why}", "esforço não aplicável a {kind}: {why}"),
     (
         "the repository has no commits yet; make the first commit before creating tasks",

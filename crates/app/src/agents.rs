@@ -132,7 +132,7 @@ mod tests {
     use super::*;
 
     fn agent(id: &str, label: &str, installed: bool, peer: bool) -> AgentInfo {
-        AgentInfo { id: id.into(), label: label.into(), color: "#d97757".into(), installed, peer }
+        AgentInfo { id: id.into(), label: label.into(), color: "#d97757".into(), installed, peer, can_answer: true }
     }
 
     #[test]

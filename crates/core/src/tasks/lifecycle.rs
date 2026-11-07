@@ -80,6 +80,13 @@ impl Core {
                 return Err(TaskError::Invalid(t!("the agent {kind} does not accept choosing a model", kind = &kind)));
             }
         }
+        // A task ends with the agent running `ask-agent --task done`: one that cannot run a command could never deliver it.
+        if !crate::agents::can_answer(&kind) {
+            return Err(TaskError::Invalid(t!(
+                "the agent {kind} cannot run shell commands, so it could never deliver a task with ask-agent --task done; choose another agent",
+                kind = &kind
+            )));
+        }
         let model = models::resolve_model(&Ident::main(&kind), requested, None, &self.config().role_models);
         // Effort: only where the CLI accepts it. In Antigravity it changes the model suffix, so the saved model
         // is already the one that will open.

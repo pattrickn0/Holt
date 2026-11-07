@@ -66,6 +66,7 @@ fn create_validates_and_records_the_task() {
     assert!(invalid(TaskSpec { model: Some("a b;c".into()), ..spec("x") }).contains("invalid model"));
     assert!(invalid(TaskSpec { kind: "aider".into(), model: Some("gpt".into()), ..spec("x") })
         .contains("the agent aider does not accept choosing a model"));
+    assert!(invalid(TaskSpec { kind: "aider".into(), ..spec("x") }).contains("the agent aider cannot run shell commands"));
     assert!(invalid(TaskSpec { base: Some("does-not-exist".into()), ..spec("x") }).contains("is not a local branch"));
     assert!(invalid(TaskSpec { base: Some("--exec".into()), ..spec("x") }).contains("is not a local branch"));
     // None of that spent a number: the next one is t4.
@@ -1291,13 +1292,14 @@ fn the_brief_goes_to_a_file_and_the_boot_line_is_short_ascii() {
 fn a_cli_without_an_initial_prompt_keeps_the_typed_delivery() {
     need_git!();
     let env = start();
-    let t = env.core.task_create(&env.project, TaskSpec { kind: "aider".into(), ..spec("With aider") }).expect("create");
+    install_fake_agent(&env.root, "codex");
+    let t = env.core.task_create(&env.project, TaskSpec { kind: "codex".into(), ..spec("With codex") }).expect("create");
     events(&env);
     env.core.task_start(&env.project, &t.id).expect("start");
     let (to, prompt, boot) = last_task_delivery(&events(&env));
-    assert_eq!(to, "aider@t1");
-    assert_eq!(boot, None, "aider has no initial prompt: the brief is typed");
-    assert!(prompt.contains("Do: With aider"));
+    assert_eq!(to, "codex@t1");
+    assert_eq!(boot, None, "codex has no initial prompt: the brief is typed");
+    assert!(prompt.contains("Do: With codex"));
     assert!(!env.root.join("data").join("tasks").join(format!("{}-t1-brief.md", env.project)).exists());
     env.core.shutdown();
 }
@@ -1309,6 +1311,7 @@ fn the_effort_of_a_task_is_validated_stored_and_reaches_the_claude_tab() {
     let core = &env.core;
     install_fake_agent(&env.root, "agy");
     install_fake_agent(&env.root, "opencode");
+    install_fake_agent(&env.root, "gemini");
     let effort = |e| TaskSpec { effort: Some(e), ..spec("With effort") };
 
     // Claude: stores the effort and opens the tab with `--effort`; without effort, nothing goes to the CLI.
@@ -1349,8 +1352,8 @@ fn the_effort_of_a_task_is_validated_stored_and_reaches_the_claude_tab() {
         .expect_err("opencode");
     assert!(matches!(&e, TaskError::Invalid(m) if m.contains("headless")), "{e:?}");
     // Whoever lacks the option too.
-    let e = core.task_create(&env.project, TaskSpec { kind: "aider".into(), ..effort(Effort::High) }).expect_err("aider");
-    assert!(matches!(&e, TaskError::Invalid(m) if m.contains("effort not applicable to aider")), "{e:?}");
+    let e = core.task_create(&env.project, TaskSpec { kind: "gemini".into(), ..effort(Effort::High) }).expect_err("gemini");
+    assert!(matches!(&e, TaskError::Invalid(m) if m.contains("effort not applicable to gemini")), "{e:?}");
     core.shutdown();
 }
 
@@ -1361,6 +1364,7 @@ fn the_spawn_spec_carries_the_boot_prompt_once_per_cli() {
     let core = &env.core;
     install_fake_agent(&env.root, "agy");
     install_fake_agent(&env.root, "opencode");
+    install_fake_agent(&env.root, "gemini");
     install_fake_agent(&env.root, "codex");
     let line = "Task t7: the full request is in the file C:/Users/Ana Bia/data/tasks/p1-t7-brief.md. Read the file and start now.";
     let spec_of = |id: &str, boot: bool| {
