@@ -144,15 +144,8 @@ to the system font.
   not have it). `StripKind::colored` picks between agent and document.
 - Icon buttons: in the title bar 26×24, corners 5; in the PROJECTS header 20×20, corners 4; in the FILES header 22×22,
   corners 5; hover `hover`.
-- Pane header, view switch (`panes::view_switch`): for the tabs that have a chat view, a 48×22 `recess` track (corners 6) with two
-  icon segments (`Icon::ChatBubble`, `Icon::Terminal`, 13 px); the active segment is filled with the tab agent's colour and
-  its icon is `on_accent`; the other is `text_2` (`text` and `hover` on hover). The tooltips are "Chat view" / "Terminal view".
-  Text segments ("Chat | Terminal") are no longer used for it.
-- Chat composer row (`ui/chat.rs`): attach, mic, then the **model and effort pickers** (`picker_chip`: 22 px, corners 5, `meta(10.5)`
-  in `text_3`, a "▾", `hover` fill while hovered or open) and the context use in plain `meta` text. The menu is
-  `tasks::dropdown_popup` (the task form's component) opened **upward** from the chip (`above = true`, 230 px / 150 px wide). A chip
-  that cannot be used (a turn is running, or the CLI has no effort) is dimmed and its tooltip says why. Debug states:
-  `HOLT_DEBUG_UI=chat-demo-model` / `chat-demo-effort` open each picker over the demo conversation.
+- Pane header: tabs only, then the attachment, microphone and "+" icon buttons on the right; there is no view switch
+  (the chat view was removed, a tab is its terminal).
 - Row of a diff's file list: 20 px, selected `selected_soft`; letters and `+`/`−` in `meta(10)`.
 - Right bar: 32 px header (`TOPBAR_H`) with 3 named pill tabs (Tasks, Git, GitHub; 22 px tall, corners 5, 10 px pill
   badge). There is no Chat tab: agent messages live in each task's Timeline and system notices are notifications.

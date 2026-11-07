@@ -4,7 +4,6 @@
 //! the conventions and the coverage test.
 
 pub const ENTRIES: &[(&str, &str)] = &[
-    ("{kind} has no chat view.", "{kind} não tem visão de chat."),
     // Effort (models.rs)
     ("low", "baixo"),
     ("medium", "médio"),
@@ -87,10 +86,6 @@ pub const ENTRIES: &[(&str, &str)] = &[
     (
         "Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code",
         "Qwen Code não encontrado. Instale com:\r\n  npm install -g @qwen-code/qwen-code",
-    ),
-    (
-        "The chat view of Copilot needs the standalone Copilot CLI: npm install -g @github/copilot",
-        "A visão de conversa do Copilot precisa do Copilot CLI independente: npm install -g @github/copilot",
     ),
     ("Amazon Q Developer CLI not found.", "Amazon Q Developer CLI não encontrado."),
     (

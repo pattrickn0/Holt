@@ -485,8 +485,8 @@ impl Core {
         }
     }
 
-    /// The user picked another model for the tab (the chat composer): saved, so the next launch of the tab (chat or
-    /// terminal, also after reopening the app) uses it. `None` = the default. Antigravity keeps the effort it had
+    /// The user picked another model for the tab: saved, so the next launch of the tab (also after reopening the app)
+    /// uses it. `None` = the default. Antigravity keeps the effort it had
     /// (it is a suffix of the name); an effort the new model cannot carry is dropped. Error = invalid name or an agent
     /// that does not choose a model.
     pub fn set_tab_model(&self, project: &str, ident: &Ident, model: Option<&str>) -> Result<(), String> {

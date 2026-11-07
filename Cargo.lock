@@ -1770,7 +1770,6 @@ dependencies = [
  "parking_lot",
  "png",
  "portable-pty",
- "pulldown-cmark",
  "raw-window-handle",
  "rfd",
  "serde_json",

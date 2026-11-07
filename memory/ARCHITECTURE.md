@@ -138,56 +138,18 @@ The policy in `delivery.rs` avoids overriding the user or TUI:
 
 ---
 
-## Chat view of an agent tab (`crates/core/src/chat.rs`, `app/src/deck/chat.rs`, `app/src/ui/chat.rs`)
+## Agent phase and idle time (`crates/core/src/phase.rs`, `agents.rs`, `deck/`)
 
-A tab of Claude, Antigravity, Codex or any CLI with an ACP mode (OpenCode, Goose, Gemini, Copilot, Qwen) shows a friendly chat (messages, tool calls with diffs, permission cards, a composer) instead of the CLI's
-terminal UI, with the CLI still running underneath. Holt never reads the terminal screen: the CLI runs in its **structured mode**
-via a generic backend layer (`crates/core/src/chat/backend.rs`), rendering common chat events. Chat is the default view
-(`Config.chat_by_default`); the tab menu switches a tab to Terminal and back (`ProjectCfg.tab_views`, `Deck::set_tab_view`): the process is
-replaced and the conversation continues (same session id, `--resume` for Claude, `--conversation` for Antigravity, `thread/resume` in Codex, `session/load` in ACP). Other CLIs (aider, interpreter, Amazon Q) keep the terminal (`chat::supports`).
-
-- **Backend layer (`chat/backend.rs`):** `ChatBackend` defines CLI capabilities, spawn arguments (leading args, mode flags, model, effort, resume id), session persistence rules, and history loader. `Protocol` manages per-process bidirectional stdio communication (`open` handshake, `parse` lines into `Parsed { events, reply }`, `user_message`, `answer_permission`, `interrupt`).
-  - **Claude Code (`ClaudeBackend`):** launches with `-p --input-format stream-json --output-format stream-json --include-partial-messages --verbose --permission-prompt-tool stdio`. Parses top-level `type` objects; tool approvals arrive via `control_request` (`can_use_tool`) and are answered on stdin via `control_response`. Interrupts send `control_request` `interrupt`.
-  - **Antigravity (`AntigravityBackend`):** launches with `--input-format stream-json --output-format stream-json --mode auto`. Parses top-level `event` objects (`init`, `step_update`, `result`). Headless mode runs with `always-proceed` (no stdio approval prompts). Interrupts send `SIGINT` to the child's process group (`libc::kill(-pid, SIGINT)`), yielding an error result with `error: "interrupted"`.
-  - **Codex (`CodexBackend`):** launches with `app-server` (JSON-RPC over stdio). Performs `initialize` handshake, opens or rejoins sessions with `thread/start` or `thread/resume`, and runs turns with `turn/start`. Assistant text streams via `item/agentMessage/delta`. Approvals arrive as server requests (`item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval`) and Holt replies with `{"id": <req_id>, "result": {"decision": ...}}`. Interrupts send `turn/interrupt`. Turn messages sent while active are queued so every turn produces its own result.
-  - **Any CLI with an ACP mode (`chat/acp.rs`, `AcpBackend` + `AcpProtocol`):** one backend, data-driven by the table `acp::CLIS` (the arguments that start the ACP mode: `opencode acp`, `goose acp`, `gemini --acp`, `copilot --acp --stdio`, `qwen --acp`, checked against the ACP registry and each CLI's docs). Agent Client Protocol is JSON-RPC 2.0 over stdio: `initialize` (Holt advertises no `fs` and no `terminal` capability and refuses those methods with -32601), `session/new` (cwd, `mcpServers: []`) or `session/load` when resuming and the agent advertises `loadSession` (the history streams back as updates and replaces the view's, `ChatEvent::Replay`), one `session/prompt` per message (the next waits for the previous, so each message has its result; `stopReason` ends the turn), `session/update` (message and thought chunks, `tool_call`/`tool_call_update` with `diff` content → `Edit` call with patch hunks, `available_commands_update`, `usage_update`; `plan` and mode updates are ignored), `session/request_permission` → the permission card (`allow_once` = Allow, `allow_always` = "for this session", `reject_once` = Deny), `session/cancel` for the interrupt. The model is whatever the agent says in `session/new`; the model and effort pickers stay off (OpenCode keeps its model through `OPENCODE_CONFIG_CONTENT`). Instructions: OpenCode (configuration), Goose and Copilot (`AGENTS.md`) have channels already; Gemini and Qwen get them in front of the first prompt of a new conversation (`SpawnSpec::instructions`, `<holt-instructions>`, left out of replayed histories). Copilot needs the standalone `copilot` CLI, not the old `gh copilot` extension. Traps: `memory/learnings/acp-protocol-traps.md`.
-- **Core (`chat.rs`, no interface):** `Transcript` is the conversation (`Item`: user / assistant text / thinking / tool call / permission card / notice).
-  `apply(event)` builds it, `push_user` starts a turn (`busy` = turns sent and not yet ended). `from_history` (Claude), `from_agy_history` (Antigravity), or `Replay` events (Codex) rebuild the conversation for resumed tabs (`Core::chat_history`).
-  `Core::spawn_chat` starts the child with reader, stderr, and writer threads, wiring `Protocol` methods under a mutex lock.
-  `Core::spawn_spec_chat` uses `backend.spawn_args(&Launch { model, effort })`, omits terminal turn hooks, and passes initial task prompts via `SpawnSpec::first_message`.
-- **Phase and idle time (`chat::Phase`, `chat::phase_for_command`, `chat::idle_label`, `agents.rs`, `deck/`):** what each agent is doing is derived from what the CLI reports, never self-declared by the agent. `Phase::from_tool(name, input)` and `phase_for_command(cmd)` map tool calls (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`edit_file`/`write_file` → `editing`; `Bash`/`run_command` running test or build commands → `testing`/`building`, otherwise `running a command`; `Read`/`Grep`/`Glob`/`LS`/`read_file`/… → `reading`; `WebSearch`/`WebFetch`/`search_web`/… → `searching the web`). In chat views (Claude, Antigravity, Codex), `Transcript::phase()` derives the phase from the running turn (a pending permission → `waiting for you`, the latest tool call in the turn, or streaming assistant text → `writing`). In Claude terminal tabs, the `PostToolUse` hook (`write_claude_hooks_with`) calls `ask-agent --signal tool`, which maps `tool_name` and `tool_input` from stdin with `Phase::from_tool` and posts `POST /signal` (`state: "tool"`). When a turn ends, `Tab.phase` clears and `Tab.idle_since` records the `Instant`; `Tab::status_label` shows the phase while busy and `idle_label` (`"idle <1 min"`, `"idle N min"`, `"idle N h"`, refreshed once a minute) when idle in the sidebar agent row, tab tooltip, and `AGENTS WORKING` lane of the Tasks panel.
-- **App (`deck/chat.rs`):** `Tab.chat: Option<Box<ChatTab>>` (`Some` = chat view). `Deck::pump_chat` drains processes; `on_chat_event` tracks session IDs, auto-denies unsupported tool questions, rings and marks tab "done" on permission requests, updates `Tab.phase`, and sets `Tab.idle_since` when turns end.
-- **View (`ui/chat.rs`):** scroll area with item height cache. Renders avatars for Claude, Antigravity, and Codex (`Icon::CodexLogo`, tab color `#10a37f`). Tool calls show command, file diffs, and patch line numbers (`PatchHunk`). Pending permission cards allow 1-click approvals, allow-for-session, or denials with keyboard shortcuts.
-
-### How to add a chat backend (Checklist)
-
-**A new CLI goes through ACP first.** If the CLI has an ACP mode (natively or through an adapter), it needs one row in `acp::CLIS` (`crates/core/src/chat/acp.rs`): the `kind`, the arguments that start the ACP mode (`leading` before the others, `mode` after) and how it gets the Holt instructions. Verify the flag against the CLI's current docs or `--help` (and the ACP registry, `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`), never guess it. Then:
-
-1. Add the agent if Holt does not know it (`AGENTS` in `agents.rs`: id, label, color, install hint with its `t!` and pt-BR entry; the headless branch in `headless.rs`), its logo in `icons.rs`/`ui/projects.rs` (`agent_icon`; without one the chat avatar is the generic agent glyph), and `resume.rs` already treats an ACP CLI as one that names its own sessions.
-2. Check how the CLI receives the instructions (`instructions-per-cli.md`): a channel of its own in `agents.rs`, or `Instructions::FirstPrompt` in the table.
-3. Tests: the fake ACP agent (`crates/core/tests/support/fake_acp_agent.rs`) already covers the protocol; a new row only needs its flags in the table test (`acp::tests::the_flags_of_each_cli_are_the_ones_in_its_docs`) and in `every_cli_with_an_acp_mode_...` (`tests/chat.rs`). Record a real sample from the CLI under `crates/core/tests/data/acp-*.jsonl` when it can be run.
-
-A **native backend** (Claude, Antigravity, Codex stay native: they give usage, effort and resume that ACP adapters do not) is only worth it when the CLI's own protocol has something ACP lacks. Then:
-
-1. Implement `ChatBackend` in `crates/core/src/chat/`:
-   - `kind(&self) -> &'static str`: CLI identifier.
-   - `leading_args`, `mode_args`, `model_args`, `effort_args`: command-line flags.
-   - `resumes_by_args(&self) -> bool`: whether `--resume <id>` is CLI argument or protocol-driven.
-   - `protocol(&self, spec: &SpawnSpec) -> Box<dyn Protocol>`: returns process protocol state machine.
-   - `history(&self, home: &Path, session: &str) -> Option<Transcript>`: disk transcript or `history_pending` flag.
-2. Implement `Protocol`:
-   - `open(&mut self) -> Vec<String>`: initial handshake lines to stdin.
-   - `parse(&mut self, line: &str) -> Parsed`: transforms stdout line into `ChatEvent`s and optional immediate JSON-RPC replies.
-   - `user_message(&mut self, text: &str) -> Vec<String>`: serializes user turn input.
-   - `answer_permission(...) -> Vec<String>`: serializes approval decisions.
-   - `interrupt(&mut self) -> Interrupt`: returns stdin lines or process group signal.
-3. Wire into `chat/backend.rs`: register in `for_kind()`.
-4. Register visual assets: color in `agents.rs` / `app/src/agents.rs` and icon in `ui/chat.rs`.
-5. Add recorded test samples under `crates/core/tests/data/` and unit tests in `chat/` and `tests/chat.rs`.
-
-### OpenCode
-
-`opencode serve` (HTTP + SSE) is not used: `opencode acp` speaks ACP, so OpenCode goes through the generic backend. In the chat view `opencode acp` runs as its own process (no `--standalone`); the model and the Holt instructions still travel in `OPENCODE_CONFIG_CONTENT`, as in the terminal view. The terminal view keeps `--standalone` and `--session <id>` (`opencode-tui-standalone-and-config.md`); the id it uses is an OpenCode session, so the chat can `session/load` it and the other way round.
+What each agent is doing is derived from what the CLI reports, never self-declared by the agent. Claude's
+`PostToolUse` hook (`write_claude_hooks_with`) calls `ask-agent --signal tool`, which maps `tool_name` and `tool_input`
+from stdin with `Phase::from_tool` and posts `POST /signal` (`state: "tool"`); the bridge (`bridge.rs`) hands it to the
+interface. `Phase::from_tool(name, input)` and `phase_for_command(cmd)` map tool calls (`Edit`/`Write`/`MultiEdit`/
+`NotebookEdit`/`edit_file`/`write_file` → `editing`; `Bash`/`run_command` running test or build commands →
+`testing`/`building`, otherwise `running a command`; `Read`/`Grep`/`Glob`/`LS`/`read_file`/… → `reading`;
+`WebSearch`/`WebFetch`/`search_web`/… → `searching the web`). When a turn ends, `Tab.phase` clears and `Tab.idle_since`
+records the `Instant`; `Tab::status_label` shows the phase while busy and `idle_label` (`"idle <1 min"`, `"idle N min"`,
+`"idle N h"`, refreshed once a minute) when idle in the sidebar agent row, tab tooltip, and `AGENTS WORKING` lane of the
+Tasks panel.
 
 ## Tasks desk (`crates/core/src/tasks/`, `scope.rs`, `crates/app/src/tasks_ui.rs`)
 

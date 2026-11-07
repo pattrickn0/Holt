@@ -131,10 +131,9 @@ impl Deck {
         if d.answer {
             match found {
                 // In a plain terminal the text would run as a command (the bridge already avoids that).
-                Some(i) if self.tabs[i].alive && self.tabs[i].kind != "shell" => self.tabs[i].queue.push(
-                    Instant::now(),
-                    Queued { request: d.request, prompt: d.prompt, answer: true, mail: d.mail, from: d.from.clone() },
-                ),
+                Some(i) if self.tabs[i].alive && self.tabs[i].kind != "shell" => {
+                    self.tabs[i].queue.push(Instant::now(), Queued { request: d.request, prompt: d.prompt, answer: true, mail: d.mail })
+                }
                 _ => {
                     if let Some(mail) = d.mail {
                         // Stays unread: the notice comes again when the tab is back.
@@ -190,9 +189,7 @@ impl Deck {
         // alive) = type the text.
         let booted = boots.is_some() && self.core.take_boot_prompt(&d.project, &id).is_none() && self.tabs[idx].alive;
         if !booted {
-            self.tabs[idx]
-                .queue
-                .push(Instant::now(), Queued { request: d.request, prompt: d.prompt, answer: false, mail: d.mail, from: d.from.clone() });
+            self.tabs[idx].queue.push(Instant::now(), Queued { request: d.request, prompt: d.prompt, answer: false, mail: d.mail });
         }
     }
 
@@ -227,9 +224,7 @@ impl Deck {
             self.start(idx);
         }
         self.activate(idx);
-        self.tabs[idx]
-            .queue
-            .push(Instant::now(), Queued { request: 0, prompt: prompt.clone(), answer: false, mail: None, from: String::new() });
+        self.tabs[idx].queue.push(Instant::now(), Queued { request: 0, prompt: prompt.clone(), answer: false, mail: None });
         Ok(self.tabs[idx].label.clone())
     }
 
@@ -259,19 +254,6 @@ impl Deck {
     /// What the delivery rule needs to know about the tab.
     pub(super) fn tab_state(&self, idx: usize) -> TabState {
         let tab = &self.tabs[idx];
-        if let Some(chat) = &tab.chat {
-            // A message becomes part of the conversation: it does not collide with what the user is typing, and the stream
-            // says when the turn is over.
-            return TabState {
-                alive: tab.alive,
-                busy: chat.transcript.busy(),
-                hooked: true,
-                spawned_at: tab.spawned_at,
-                last_output: Some(chat.last_event),
-                last_key: None,
-                typing: false,
-            };
-        }
         TabState {
             alive: tab.alive,
             // A send whose Enter has not gone out yet also occupies the tab.
@@ -325,7 +307,6 @@ impl Deck {
         let label = ident.label(&self.agents.name(&kind));
         // Request > saved > role default: saves it to show in the sidebar and come back with the app.
         let model = self.core.assign_model(&project, &ident, None);
-        let chat = self.new_chat_tab(&project, &ident);
         let tab = Tab {
             uid: self.next_uid,
             kind: kind.clone(),
@@ -354,8 +335,6 @@ impl Deck {
             idle_deadline: None,
             busy_output: false,
             spec: None,
-            chat,
-            view_after_turn: None,
             pending_resize: None,
             last_resize: None,
             spawned_at: None,
@@ -381,10 +360,6 @@ impl Deck {
 
     /// `start(tab)`: restarts the terminal and the process.
     pub fn start(&mut self, idx: usize) {
-        if self.tabs[idx].chat.is_some() {
-            self.start_chat(idx);
-            return;
-        }
         let wake = self.wake.clone();
         let grid = self.current_grid(&self.tabs[idx].kind);
         let ident = self.tabs[idx].ident.clone();
@@ -436,7 +411,7 @@ impl Deck {
 
     /// The tab's process ended with `code`. If it had been launched to resume its saved conversation and failed right away
     /// (the CLI does not know the session), forgets the id, starts the tab again from scratch and warns once in the
-    /// chat. The new launch has no stored id, so it cannot repeat. Returns whether it did.
+    /// terminal. The new launch has no stored id, so it cannot repeat. Returns whether it did.
     pub(crate) fn reopen_without_resume(&mut self, idx: usize, code: i64) -> bool {
         let tab = &self.tabs[idx];
         let resumed = tab.spec.as_ref().is_some_and(|s| s.resumed);
@@ -599,7 +574,6 @@ impl Deck {
         }
         let mut tab = self.tabs.remove(idx);
         tab.session.kill();
-        tab.chat = None;
         for q in tab.queue.drain() {
             if q.answer {
                 log::warn!("late answer #{} lost: the tab was closed before receiving it", q.request);
@@ -840,9 +814,7 @@ impl Deck {
 
     pub fn set_term_focus(&mut self, on: bool) {
         let seen = on && self.docs.view == CenterView::Agents;
-        // A chat tab has its own text field: the keyboard is not the terminal's.
-        let chat_active = self.active.and_then(|i| self.tabs.get(i)).is_some_and(|t| t.chat.is_some());
-        self.term_focus = seen && !chat_active;
+        self.term_focus = seen;
         if seen {
             self.blink_epoch = Instant::now();
             if let Some(i) = self.active {

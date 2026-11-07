@@ -106,8 +106,6 @@ struct Queued {
     answer: bool,
     /// `prompt` is the notice of this mail (see `holt_core::mail`).
     mail: Option<u64>,
-    /// Who sent it (id without the project; empty for the interface itself).
-    from: String,
 }
 
 /// What the right bar shows.
@@ -120,8 +118,6 @@ pub enum RightView {
     /// GitHub PRs, issues and Actions (see `github_ui.rs`).
     GitHub,
 }
-
-pub use chat::ChatTab;
 
 pub struct Tab {
     pub uid: u64,
@@ -138,7 +134,7 @@ pub struct Tab {
     pub view: ViewState,
     pub alive: bool,
     pub busy: bool,
-    /// What the agent is doing right now in the running turn (chat view or `PostToolUse` hook).
+    /// What the agent is doing right now in the running turn (the `PostToolUse` hook).
     pub phase: Option<holt_core::Phase>,
     /// When the last turn of this tab ended (`None` while busy or before any turn finished).
     pub idle_since: Option<Instant>,
@@ -169,10 +165,6 @@ pub struct Tab {
     /// There has been output since the tab became busy (only then the end of the turn rings and marks "done").
     busy_output: bool,
     pub(crate) spec: Option<SpawnSpec>,
-    /// The chat view of the tab (see [`chat`]); `None` = the terminal view.
-    pub chat: Option<Box<chat::ChatTab>>,
-    /// A view switch asked for during a turn (`true` = chat): switching restarts the process, so it waits for the end.
-    pub(crate) view_after_turn: Option<bool>,
     pending_resize: Option<(GridSize, Instant)>,
     /// When this tab's PTY was last resized: the next one only goes out after the CLI
     /// finishes reprinting the conversation (see [`Tab::resize_blocked_until`]).
@@ -470,10 +462,6 @@ pub struct Deck {
     debug_pty: bool,
     /// DEBUG ONLY: closes the restored tabs (empty-state screenshot).
     pub debug_close_all: bool,
-    /// `HOLT_DEBUG_UI=chat-demo`: fill the first chat tab with a made-up conversation (see `Deck::debug_chat_demo`).
-    pub debug_chat_demo: bool,
-    /// `HOLT_DEBUG_UI=chat-demo-model|chat-demo-effort`: opens that picker of the composer in the active chat tab.
-    pub debug_chat_picker: Option<crate::ui::ChatPicker>,
 }
 
 const PERSIST_DEBOUNCE: Duration = Duration::from_millis(120);
@@ -649,8 +637,6 @@ impl Deck {
             terminal_rect: None,
             window_focused: true,
             debug_close_all: false,
-            debug_chat_demo: false,
-            debug_chat_picker: None,
             debug_fake_shell: holt_core::env_var("DEBUG_FAKE_SHELL").is_some_and(|v| v == "1"),
             debug_pty: holt_core::env_var("DEBUG_PTY").is_some_and(|v| v == "1"),
         };
@@ -711,7 +697,6 @@ impl Deck {
 
 // Each section in a file (children of this module: they see `Deck`'s private fields).
 mod attachments;
-mod chat;
 mod dictation;
 mod frame;
 mod keyboard;
@@ -748,9 +733,7 @@ fn debug_fake_spec(kind: &str, cwd: &std::path::Path) -> SpawnSpec {
         model: None,
         resumed: false,
         session_log: None,
-        first_message: None,
         session: None,
-        instructions: None,
     }
 }
 

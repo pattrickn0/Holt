@@ -55,13 +55,7 @@ pub(crate) struct Env {
 }
 
 impl Env {
-    /// The terminal is what these tests exercise: a Claude tab opens in the terminal view.
-    fn start() -> Env {
-        Env::start_with(false)
-    }
-
-    /// `chat`: Claude tabs open in the chat view (the default of the app).
-    pub(crate) fn start_with(chat: bool) -> Env {
+    pub(crate) fn start() -> Env {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path().to_path_buf();
         install_fake_claude(&root);
@@ -86,7 +80,7 @@ impl Env {
             search_path: Some(std::env::join_paths([root.join("fake-bin"), git_dir()]).expect("PATH")),
             home_dir: Some(root.join("home")),
             watch_workspace: false,
-            config: Some(Config { chat_by_default: chat, ..Config::with_project(ws.clone()) }),
+            config: Some(Config::with_project(ws.clone())),
             system_dirs: false,
         };
         let (core, rx) = Core::start_with(paths, opts).expect("start");
@@ -96,33 +90,6 @@ impl Env {
         out.textures_delta.clear();
         let deck = Deck::new(core.clone(), rx, std::sync::Arc::new(|| {}));
         Env { _tmp: tmp, ws, core, deck, ctx }
-    }
-
-    /// Closes Holt and opens it again on the same folders: the tabs it saved come back, as after quitting the app. The
-    /// processes of the old run are killed first (what quitting does).
-    pub(crate) fn restart(&mut self) {
-        self.deck.shutdown();
-        let config = self.core.config();
-        self.core.shutdown();
-        let root = self.ws.parent().expect("root").to_path_buf();
-        let paths = AppPaths {
-            app_dir: root.clone(),
-            bin_dir: root.join("bin"),
-            data_dir: root.join("data"),
-            default_workspace: root.join("ws"),
-            whisper_dir: root.join("whisper"),
-            config_file: root.join("cfg").join("config.json"),
-        };
-        let opts = StartOptions {
-            search_path: Some(std::env::join_paths([root.join("fake-bin"), git_dir()]).expect("PATH")),
-            home_dir: Some(root.join("home")),
-            watch_workspace: false,
-            config: Some(config),
-            system_dirs: false,
-        };
-        let (core, rx) = Core::start_with(paths, opts).expect("start again");
-        self.deck = Deck::new(core.clone(), rx, std::sync::Arc::new(|| {}));
-        self.core = core;
     }
 
     /// Runs frames until `done` becomes true (or 30 s).

@@ -3,14 +3,14 @@
 
 use std::time::Duration;
 
-use egui::{Align2, Color32, CursorIcon, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Align2, CursorIcon, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 use super::tabs::{self, StripClick};
 use super::{clickable, empty_state, paint_splitter, text_in, tip};
 use crate::audio;
 use crate::deck::{Deck, PanePlan};
 use crate::dictation::{self, ButtonVisual, MicTarget};
-use crate::icons::{Icon, IconCache};
+use crate::icons::Icon;
 use crate::split;
 use crate::terminal::view::{self, Metrics};
 use crate::theme;
@@ -23,7 +23,6 @@ const GRIP_W: f32 = 18.0;
 /// Space on each side of the grip, so its dots do not touch the window's edge or the first tab.
 const GRIP_PAD: f32 = 4.0;
 const ICON_BTN: f32 = 20.0;
-const VIEW_TOGGLE_W: f32 = 48.0;
 
 /// Terminal area inside a window (below the header).
 pub fn pane_body(rect: Rect) -> Rect {
@@ -39,8 +38,6 @@ enum Click {
     Swap(usize, usize),
     Mic(u64),
     Attach(u64),
-    /// The Chat | Terminal switch of a tab: `true` = chat.
-    View(usize, bool),
 }
 
 /// The islands of the center: one per window (or the whole area, in the empty state).
@@ -88,50 +85,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, area: Rect) {
             Click::Swap(a, b) => deck.swap_panes(a, b),
             Click::Mic(uid) => deck.toggle_tab_mic(uid),
             Click::Attach(uid) => deck.pick_tab_attachments(uid),
-            Click::View(i, chat) => deck.set_tab_view(i, chat),
         }
     }
-}
-
-/// The Chat | Terminal switch of a pane header: one icon per view in a `recess` track, the active one in the tab agent's
-/// colour. Returns the view the user clicked.
-fn view_switch(
-    ui: &Ui,
-    icons: &mut IconCache,
-    rect: Rect,
-    id: Id,
-    views: &[(Icon, &str)],
-    selected: usize,
-    tint: Color32,
-) -> Option<usize> {
-    let p = theme::pal();
-    let painter = ui.painter();
-    painter.rect_filled(rect, 6.0, p.recess);
-    let inner = rect.shrink(2.0);
-    let w = inner.width() / views.len().max(1) as f32;
-    let mut clicked = None;
-    for (i, (icon, tooltip)) in views.iter().enumerate() {
-        let seg = Rect::from_min_size(Pos2::new(inner.min.x + w * i as f32, inner.min.y), Vec2::new(w, inner.height()));
-        let r = clickable(ui, seg, id.with(i));
-        let on = i == selected;
-        if on {
-            painter.rect_filled(seg, 4.0, tint);
-        } else if r.hovered() {
-            painter.rect_filled(seg, 4.0, p.hover);
-        }
-        let fg = if on {
-            p.on_accent
-        } else if r.hovered() {
-            p.text
-        } else {
-            p.text_2
-        };
-        icons.paint(painter, *icon, seg.center(), 13.0, fg, 0.0);
-        if tip(r, *tooltip).clicked() {
-            clicked = Some(i);
-        }
-    }
-    clicked
 }
 
 /// Focus on the terminal of a tab (click on the terminal, on the header or on a tab).
@@ -198,19 +153,12 @@ fn draw_pane(deck: &mut Deck, ui: &mut Ui, plan: &PanePlan, slot: usize, focused
 
     // ---------- Action buttons to the right of the header (20×20, corners 4) ----------
     let cy = head.min.y + (HEAD_H - 1.0) / 2.0;
-    // In the Chat view the composer has its own microphone and attachment: the header keeps only "+".
-    let in_chat = deck.tabs[plan.shown].chat.is_some();
     let plus = Rect::from_min_size(Pos2::new(head.max.x - 6.0 - ICON_BTN, cy - ICON_BTN / 2.0), Vec2::splat(ICON_BTN));
     let attach = Rect::from_min_size(Pos2::new(plus.min.x - 4.0 - ICON_BTN, cy - ICON_BTN / 2.0), Vec2::splat(ICON_BTN));
     let mic = Rect::from_min_size(Pos2::new(attach.min.x - 4.0 - ICON_BTN, cy - ICON_BTN / 2.0), Vec2::splat(ICON_BTN));
-    let tools_left = if in_chat { plus } else { mic };
+    let strip_end = mic.min.x - 4.0;
 
     // ---------- Tabs ----------
-    // Claude's tabs switch between the chat and the terminal view of the same conversation.
-    let toggle = holt_core::chat::supports(&deck.tabs[plan.shown].kind)
-        .then(|| Rect::from_min_size(Pos2::new(tools_left.min.x - 8.0 - VIEW_TOGGLE_W, cy - 11.0), Vec2::new(VIEW_TOGGLE_W, 22.0)))
-        .filter(|r| r.min.x - x0 > 120.0);
-    let strip_end = toggle.unwrap_or(tools_left).min.x - 4.0;
     let strip_rect = Rect::from_min_max(Pos2::new(x0, head.min.y), Pos2::new(strip_end.max(x0), head.max.y - 1.0));
     // A click on the empty space of the tab strip focuses the window (the tabs, on top, have their own action).
     if ui.interact(strip_rect, Id::new(("pane-head", &group)), Sense::click()).clicked() {
@@ -224,22 +172,13 @@ fn draw_pane(deck: &mut Deck, ui: &mut Ui, plan: &PanePlan, slot: usize, focused
         None => {}
     }
 
-    if let Some(r) = toggle {
-        let tint = deck.tabs[plan.shown].color;
-        let id = Id::new(("pane-view", &group));
-        let views = [(Icon::ChatBubble, t!("Chat view")), (Icon::Terminal, t!("Terminal view"))];
-        if let Some(i) = view_switch(ui, &mut deck.icons, r, id, &views, usize::from(!in_chat), tint) {
-            clicks.push(Click::View(plan.shown, i == 0));
-        }
-    }
-
     // ---------- Microphone and attachment of the visible tab (`plan.shown`) + "+" ----------
     let shown_uid = deck.tabs[plan.shown].uid;
     let shown_alive = deck.tabs[plan.shown].alive;
     let shown_label = deck.tabs[plan.shown].label.clone();
     let kind = deck.tabs[plan.shown].kind.clone();
 
-    if !in_chat {
+    {
         let visual = dictation::button_visual(deck.mic_phase, MicTarget::Tab(shown_uid));
         let mic_busy = visual.is_busy() || !shown_alive;
         let mic_resp = ui.interact(mic, Id::new(("pane-mic", &group)), if mic_busy { Sense::hover() } else { Sense::click() });
@@ -311,12 +250,7 @@ fn draw_pane(deck: &mut Deck, ui: &mut Ui, plan: &PanePlan, slot: usize, focused
     // ---------- Terminal ----------
     let idx = plan.shown;
     let color = deck.tabs[idx].color;
-    if deck.tabs[idx].chat.is_some() {
-        // The chat view has its own text field; the terminal below does not exist for this tab.
-        if super::chat::show(deck, ui, body, idx) {
-            clicks.push(Click::Focus(idx));
-        }
-    } else {
+    {
         deck.fit_tab(idx, body);
         let has_focus = focused && deck.term_focus && deck.window_focused;
         let elapsed = deck.blink_epoch.elapsed().as_millis();

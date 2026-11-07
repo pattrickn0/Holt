@@ -620,7 +620,7 @@ fn signal(core: &Core, auth: &Auth, msg: &Value) -> (u16, Value) {
         Some("tool") => {
             let phase = match msg.get("phase").and_then(Value::as_str) {
                 Some("") => return (200, json!({ "ok": true })),
-                Some(code) => match crate::chat::Phase::from_code(code) {
+                Some(code) => match crate::phase::Phase::from_code(code) {
                     Some(p) => p,
                     None => return (400, json!({ "error": "invalid phase" })),
                 },
@@ -629,7 +629,7 @@ fn signal(core: &Core, auth: &Auth, msg: &Value) -> (u16, Value) {
                         return (400, json!({ "error": "missing phase or tool_name" }));
                     };
                     let input = msg.get("tool_input").or_else(|| msg.get("input")).unwrap_or(&Value::Null);
-                    let Some(p) = crate::chat::Phase::from_tool(name, input) else {
+                    let Some(p) = crate::phase::Phase::from_tool(name, input) else {
                         return (200, json!({ "ok": true }));
                     };
                     p

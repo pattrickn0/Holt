@@ -34,7 +34,6 @@ png.workspace = true
 chrono.workspace = true
 cpal = { workspace = true, optional = true }
 egui_commonmark.workspace = true
-pulldown-cmark.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
