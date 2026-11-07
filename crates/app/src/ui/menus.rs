@@ -413,31 +413,51 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         shadow(p, rect, 8, 8, 24, pal.shadow);
         frame(p, rect, 8.0, pal.popup, pal.glass_border);
         let inner = rect.shrink2(Vec2::new(6.0, 6.0));
-        // Layout: how the windows of the project are arranged (the same choice as the title bar switch).
-        section_label(p, Rect::from_min_size(Pos2::new(rect.min.x, inner.min.y), Vec2::new(rect.width(), title_h)), t!("LAYOUT"));
+        // `section_label` indents by 10 px; `inner.min.x - 2.0` aligns section titles with the 8 px row text inset.
+        let label_x = inner.min.x - 2.0;
+        // Layout: how the windows of the project are arranged (the same choice as the sidebar switch).
+        section_label(p, Rect::from_min_size(Pos2::new(label_x, inner.min.y), Vec2::new(rect.width(), title_h)), t!("LAYOUT"));
         for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {
             let row = Rect::from_min_size(
                 Pos2::new(inner.min.x, inner.min.y + title_h + 2.0 + item_h * i as f32),
                 Vec2::new(inner.width(), item_h),
             );
             let r = super::clickable(ui, row, Id::new(("setting-layout", i)));
-            if r.hovered() {
-                p.rect_filled(row, 5.0, pal.hover);
-            }
             let on = org == current_org;
+            let hov = r.hovered();
+            let pill = row.shrink2(Vec2::new(0.0, 1.0));
+            if on {
+                p.rect_filled(pill, 5.0, if hov { pal.selected } else { pal.selected_soft });
+            } else if hov {
+                p.rect_filled(pill, 5.0, pal.hover);
+            }
+            let icon_fg = if on {
+                pal.text_strong
+            } else if hov {
+                pal.text
+            } else {
+                pal.text_3
+            };
+            let text_fg = if on {
+                pal.text_strong
+            } else if hov {
+                pal.text
+            } else {
+                pal.text_2
+            };
+            super::sidebar::paint_org_icon(p, Pos2::new(row.min.x + 16.0, row.center().y), org, icon_fg);
             text_in(
                 p,
-                row.shrink2(Vec2::new(8.0, 0.0)),
+                Rect::from_min_max(Pos2::new(row.min.x + 32.0, row.min.y), Pos2::new(row.max.x - 28.0, row.max.y)),
                 Align2::LEFT_CENTER,
                 super::sidebar::org_name(org),
-                theme::ui(12.0),
-                if on { pal.text_strong } else { pal.text },
+                if on { theme::ui_medium(12.0) } else { theme::ui(12.0) },
+                text_fg,
             );
             if on {
                 let c = Pos2::new(row.max.x - 15.0, row.center().y);
-                let s = Stroke::new(1.5, pal.text_strong);
-                p.line_segment([c + Vec2::new(-4.0, 0.5), c + Vec2::new(-1.5, 3.0)], s);
-                p.line_segment([c + Vec2::new(-1.5, 3.0), c + Vec2::new(4.0, -3.0)], s);
+                let pts = vec![c + Vec2::new(-4.0, 0.5), c + Vec2::new(-1.5, 3.0), c + Vec2::new(4.0, -2.5)];
+                p.add(egui::Shape::line(pts, Stroke::new(1.5, pal.text_strong)));
             }
             if super::tip(r, super::sidebar::org_effect(org)).clicked() {
                 layout = Some(org);
@@ -445,7 +465,7 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         }
         let after_layout = inner.min.y + layout_h;
         separator(p, Pos2::new(inner.min.x + 4.0, after_layout - 6.5), Pos2::new(inner.max.x - 4.0, after_layout - 6.5));
-        section_label(p, Rect::from_min_size(Pos2::new(rect.min.x, after_layout), Vec2::new(rect.width(), title_h)), t!("SETTINGS"));
+        section_label(p, Rect::from_min_size(Pos2::new(label_x, after_layout), Vec2::new(rect.width(), title_h)), t!("SETTINGS"));
 
         // Item 1: notification sounds
         let item = Rect::from_min_size(Pos2::new(inner.min.x, after_layout + title_h + 2.0), Vec2::new(inner.width(), item_h));
@@ -508,7 +528,7 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         // Dictation: the language Whisper hears, and translating into English.
         separator(p, Pos2::new(inner.min.x + 4.0, item4.max.y + 6.5), Pos2::new(inner.max.x - 4.0, item4.max.y + 6.5));
         let dict = Rect::from_min_size(Pos2::new(inner.min.x, item4.max.y + 13.0), Vec2::new(inner.width(), title_h));
-        section_label(p, Rect::from_min_size(Pos2::new(rect.min.x, dict.min.y), Vec2::new(rect.width(), title_h)), t!("DICTATION"));
+        section_label(p, Rect::from_min_size(Pos2::new(label_x, dict.min.y), Vec2::new(rect.width(), title_h)), t!("DICTATION"));
         let cell_w = (inner.width() - 4.0) / 3.0;
         let grid_top = dict.max.y;
         for (i, (code, name)) in SPOKEN.iter().enumerate() {

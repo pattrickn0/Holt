@@ -1,5 +1,5 @@
-//! `#sidebar`: the Agents | Documents switch, the window layout row, the projects and agents, the draggable divider, and the
-//! VS Code-style file explorer with filter and changed-only views.
+//! `#sidebar`: the Agents | Documents switch, the projects and agents, the draggable divider, the VS Code-style
+//! file explorer with filter and changed-only views, and the window layout footer.
 
 use std::collections::HashMap;
 
@@ -14,16 +14,17 @@ use holt_core::t;
 use holt_core::DirEntry;
 use holt_core::Organization;
 
-/// Height of the `LAYOUT` row (label + organization switch) under the Agents | Documents switch.
-pub const LAYOUT_ROW_H: f32 = 28.0;
-/// Organization switch (`recess` track, corners 6; three 30×20 segments, corners 4, 2 px inset).
+/// Height of the `LAYOUT` footer row (top separator + label and organization switch) below `FILES`.
+pub const LAYOUT_ROW_H: f32 = 36.0;
+/// Organization switch (`recess` track, corners 6; three 30×20 segments, corners 4, 2 px inset, 1 px gap).
 pub const ORG_TRACK_W: f32 = 96.0;
 pub const ORG_TRACK_H: f32 = 24.0;
 const ORG_SEG: Vec2 = Vec2::new(30.0, 20.0);
 const ORG_INSET: f32 = 2.0;
+const ORG_GAP: f32 = 1.0;
 /// Size of the layout glyphs and their stroke.
 const ORG_GLYPH: Vec2 = Vec2::new(16.0, 11.0);
-const ORG_GLYPH_STROKE: f32 = 1.4;
+const ORG_GLYPH_STROKE: f32 = 1.3;
 /// Side margin of the `LAYOUT` row (label and track) and the least space kept between them.
 const LAYOUT_MARGIN: f32 = 10.0;
 const LAYOUT_LABEL_GAP: f32 = 8.0;
@@ -76,19 +77,20 @@ pub struct FlatFileRow {
 }
 
 /// Computes `(max_list_h, cap_h)` for the `PROJECTS` list given the available height below the `PROJECTS`
-/// header (`avail_h`), the natural height of the project/agent tree (`content_h`), the saved fraction (`ratio`),
-/// and whether `FILES` is collapsed.
+/// header (`avail_h`, down to the bottom of the sidebar), the natural height of the project/agent tree
+/// (`content_h`), the saved fraction (`ratio`), and whether `FILES` is collapsed.
 ///
-/// When the tree is shorter than `cap_h`, `max_list_h == content_h` so `FILES` rises right under `PROJECTS`
-/// with no empty band. Minimums: 3 agent rows above (`MIN_PROJECTS_LIST_H`), `FILES` header + 3 file rows below
-/// (`MIN_FILES_H`).
+/// Reserves [`LAYOUT_ROW_H`] at the bottom for the `LAYOUT` row. When the tree is shorter than `cap_h`,
+/// `max_list_h == content_h` so `FILES` rises right under `PROJECTS` with no empty band. Minimums: 3 agent
+/// rows above (`MIN_PROJECTS_LIST_H`), `FILES` header + 3 file rows below (`MIN_FILES_H`).
 pub fn projects_max_height(avail_h: f32, content_h: f32, ratio: f32, files_collapsed: bool) -> (f32, f32) {
     let avail_h = avail_h.max(0.0);
+    let usable_h = (avail_h - LAYOUT_ROW_H).max(0.0);
     if files_collapsed {
-        let cap = (avail_h - COLLAPSED_FILES_H).max(0.0);
+        let cap = (usable_h - COLLAPSED_FILES_H).max(0.0);
         return (content_h.min(cap), cap);
     }
-    let max_cap = (avail_h - SPLITTER_H - MIN_FILES_H).max(MIN_PROJECTS_LIST_H).min(avail_h);
+    let max_cap = (usable_h - SPLITTER_H - MIN_FILES_H).max(MIN_PROJECTS_LIST_H).min(usable_h);
     let min_cap = MIN_PROJECTS_LIST_H.min(max_cap);
     let r = if ratio > 0.0 { ratio.clamp(0.05, 0.95) } else { DEFAULT_PROJECTS_RATIO };
     let cap_h = (avail_h * r).round().clamp(min_cap, max_cap);
@@ -97,10 +99,11 @@ pub fn projects_max_height(avail_h: f32, content_h: f32, ratio: f32, files_colla
 
 /// Converts a pointer Y offset (measured from the top of the `PROJECTS` list) into a clamped config fraction.
 pub fn clamp_projects_ratio(avail_h: f32, pointer_offset_y: f32) -> f32 {
-    if avail_h <= 1.0 {
+    let usable_h = (avail_h - LAYOUT_ROW_H).max(0.0);
+    if usable_h <= 1.0 {
         return DEFAULT_PROJECTS_RATIO;
     }
-    let max_cap = (avail_h - SPLITTER_H - MIN_FILES_H).max(MIN_PROJECTS_LIST_H).min(avail_h);
+    let max_cap = (usable_h - SPLITTER_H - MIN_FILES_H).max(MIN_PROJECTS_LIST_H).min(usable_h);
     let min_cap = MIN_PROJECTS_LIST_H.min(max_cap);
     let clamped = pointer_offset_y.clamp(min_cap, max_cap);
     (clamped / avail_h).clamp(0.05, 0.95)
@@ -192,36 +195,40 @@ pub fn org_effect(org: Organization) -> &'static str {
     }
 }
 
-/// Draws the `LAYOUT` row in `row`: the section label on the left and the 96×24 `recess` track with three
-/// 30×20 segments (active in `selected`, not accent) right-aligned. At narrow widths the label goes first.
-fn layout_row(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, row: Rect) {
+/// Draws the `LAYOUT` footer row in `row`: a top separator across the island, the section label on the left,
+/// and the 96×24 `recess` track with three 30×20 segments (active in `selected`, not accent) right-aligned.
+/// At narrow widths the label goes first.
+fn layout_row(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, row: Rect, dragging: bool) {
     let p = theme::pal();
+    separator(painter, Pos2::new(row.min.x, row.min.y + 0.5), Pos2::new(row.max.x, row.min.y + 0.5));
+    let cy = row.center().y.round();
     let label = t!("LAYOUT");
     let label_w =
         super::galley_spaced(painter, &label.to_uppercase(), theme::label(10.0), p.text_3, 10.0 * theme::LABEL_SPACING_EM).size().x;
     if layout_label_fits(row.width(), label_w) {
-        section_label(painter, Rect::from_min_size(Pos2::new(row.min.x, row.center().y - super::SECTION_LABEL_H / 2.0), row.size()), label);
+        section_label(painter, Rect::from_min_size(Pos2::new(row.min.x, cy - super::SECTION_LABEL_H / 2.0), row.size()), label);
     }
     let track = Rect::from_min_size(
-        Pos2::new(row.max.x - LAYOUT_MARGIN - ORG_TRACK_W, row.center().y - ORG_TRACK_H / 2.0),
+        Pos2::new(row.max.x - LAYOUT_MARGIN - ORG_TRACK_W, cy - ORG_TRACK_H / 2.0),
         Vec2::new(ORG_TRACK_W, ORG_TRACK_H),
     );
     painter.rect_filled(track, 6.0, p.recess);
     for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {
-        let seg = Rect::from_min_size(track.min + Vec2::splat(ORG_INSET) + Vec2::new(ORG_SEG.x * i as f32, 0.0), ORG_SEG);
+        let seg = Rect::from_min_size(track.min + Vec2::splat(ORG_INSET) + Vec2::new((ORG_SEG.x + ORG_GAP) * i as f32, 0.0), ORG_SEG);
         let r = clickable(ui, seg, Id::new(("sidebar-org", i)));
+        let hov = r.hovered() && !dragging;
         let on = deck.organization == org;
         if on {
             painter.rect_filled(seg, 4.0, p.selected);
-        } else if r.hovered() {
+        } else if hov {
             painter.rect_filled(seg, 4.0, p.hover);
         }
         let fg = if on {
             p.text_strong
-        } else if r.hovered() {
+        } else if hov {
             p.text
         } else {
-            p.text_2
+            p.text_3
         };
         paint_org_icon(painter, seg.center(), org, fg);
         if tip(r, org_effect(org)).clicked() {
@@ -230,25 +237,26 @@ fn layout_row(deck: &mut Deck, ui: &Ui, painter: &egui::Painter, row: Rect) {
     }
 }
 
-/// 16×11 window-layout glyph (stroke 1.4) for `Tabs` (tab bar on top), `Split` (two equal columns), or
+/// 16×11 window-layout glyph (stroke 1.3) for `Tabs` (tab bar on top), `Split` (two equal columns), or
 /// `Highlight` (a big left window and two small ones on the right).
-fn paint_org_icon(painter: &egui::Painter, center: Pos2, org: Organization, color: Color32) {
-    let frame = Rect::from_center_size(center, ORG_GLYPH);
+pub(super) fn paint_org_icon(painter: &egui::Painter, center: Pos2, org: Organization, color: Color32) {
+    let min = Pos2::new((center.x - ORG_GLYPH.x / 2.0).round(), (center.y - ORG_GLYPH.y / 2.0).round());
+    let frame = Rect::from_min_size(min, ORG_GLYPH);
     let stroke = Stroke::new(ORG_GLYPH_STROKE, color);
     painter.rect_stroke(frame, 2.0, stroke, egui::StrokeKind::Inside);
     match org {
         Organization::Tabs => {
-            let y = frame.min.y + 4.0;
+            let y = frame.min.y + 4.5;
             painter.line_segment([Pos2::new(frame.min.x + 1.0, y), Pos2::new(frame.max.x - 1.0, y)], stroke);
             painter.line_segment([Pos2::new(frame.min.x + 6.5, frame.min.y + 1.0), Pos2::new(frame.min.x + 6.5, y)], stroke);
         }
         Organization::Split => {
-            let x = frame.center().x;
+            let x = frame.min.x + 7.5;
             painter.line_segment([Pos2::new(x, frame.min.y + 1.0), Pos2::new(x, frame.max.y - 1.0)], stroke);
         }
         Organization::Highlight => {
-            let x = frame.min.x + 10.0;
-            let y = frame.center().y;
+            let x = frame.min.x + 9.5;
+            let y = frame.min.y + 5.5;
             painter.line_segment([Pos2::new(x, frame.min.y + 1.0), Pos2::new(x, frame.max.y - 1.0)], stroke);
             painter.line_segment([Pos2::new(x, y), Pos2::new(frame.max.x - 1.0, y)], stroke);
         }
@@ -271,18 +279,16 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     separator(&painter, Pos2::new(rect.min.x, top_y + 0.5), Pos2::new(rect.max.x, top_y + 0.5));
     top_y += 1.0;
 
-    // ---------- LAYOUT row: window organization (only with the Agents view) ----------
-    if deck.docs.view != crate::docs::CenterView::Docs {
-        layout_row(deck, ui, &painter, Rect::from_min_size(Pos2::new(rect.min.x, top_y), Vec2::new(rect.width(), LAYOUT_ROW_H)));
-        top_y += LAYOUT_ROW_H;
-    }
+    // The `LAYOUT` row is pinned at the bottom of the sidebar column (only in the Agents view).
+    let show_layout = deck.docs.view != crate::docs::CenterView::Docs;
+    let files_bottom = if show_layout { (rect.max.y - LAYOUT_ROW_H).max(top_y) } else { rect.max.y };
 
     // ---------- PROJECTS section ----------
     let projects = deck.project_views();
     let gap = ui.spacing().item_spacing.y;
     let content_h = super::projects::list_height(&projects) + gap * projects.len() as f32;
     let list_top = top_y + 4.0 + super::projects::SECTION_H + 2.0;
-    let avail_h = (rect.max.y - list_top).max(0.0);
+    let avail_h = (files_bottom + LAYOUT_ROW_H - list_top).max(0.0);
     let (max_list_h, _) = projects_max_height(avail_h, content_h, deck.sidebar_projects_ratio, deck.files_collapsed);
 
     super::projects::draw(deck, ui, &mut top_y, rect, max_list_h, dragging);
@@ -316,9 +322,9 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
 
     // ---------- FILES section header ----------
     let head_rect = if deck.files_collapsed {
-        let sep_y = rect.max.y - COLLAPSED_FILES_H + 0.5;
+        let sep_y = files_bottom - COLLAPSED_FILES_H + 0.5;
         separator(&painter, Pos2::new(rect.min.x, sep_y), Pos2::new(rect.max.x, sep_y));
-        Rect::from_min_size(Pos2::new(rect.min.x, rect.max.y - FILES_HEAD_H - 2.0), Vec2::new(rect.width(), FILES_HEAD_H))
+        Rect::from_min_size(Pos2::new(rect.min.x, files_bottom - FILES_HEAD_H - 2.0), Vec2::new(rect.width(), FILES_HEAD_H))
     } else {
         Rect::from_min_size(Pos2::new(rect.min.x, top_y + 1.0), Vec2::new(rect.width(), FILES_HEAD_H))
     };
@@ -349,7 +355,10 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     }
 
     // The collapse-all button fades in while the pointer is over the FILES area (header and tree).
-    let area = Rect::from_min_max(head_rect.min, if deck.files_collapsed { head_rect.max } else { rect.max });
+    let area = Rect::from_min_max(
+        head_rect.min,
+        if deck.files_collapsed { head_rect.max } else { Pos2::new(rect.max.x, files_bottom.max(head_rect.max.y)) },
+    );
     let over_area = deck.debug_files_hover || (!dragging && ctx.input(|i| i.pointer.hover_pos()).is_some_and(|ptr| area.contains(ptr)));
     let hover_t = ctx.animate_bool_with_time(Id::new("files-hover-actions"), over_area, 0.12);
 
@@ -454,23 +463,44 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     }
     show_files_menu(deck, &ctx);
 
-    if deck.files_collapsed {
-        return;
+    if !deck.files_collapsed && files_bottom > top_y {
+        let files_rect = Rect::from_min_max(Pos2::new(rect.min.x, top_y), Pos2::new(rect.max.x, files_bottom));
+        let files_painter = painter.with_clip_rect(files_rect.intersect(painter.clip_rect()));
+        draw_files_body(deck, ui, &files_painter, files_rect, has_folder, &marks);
     }
+
+    // ---------- LAYOUT row: window organization, pinned at the bottom of the sidebar ----------
+    if show_layout {
+        let row = Rect::from_min_max(Pos2::new(rect.min.x, files_bottom), rect.max);
+        layout_row(deck, ui, &painter, row, dragging);
+    }
+}
+
+/// Draws the body of the `FILES` section below its header (`files_rect.min.y` is the bottom of the `FILES`
+/// header and `files_rect.max.y` is the top of the `LAYOUT` row).
+fn draw_files_body(
+    deck: &mut Deck,
+    ui: &mut Ui,
+    painter: &egui::Painter,
+    files_rect: Rect,
+    has_folder: bool,
+    marks: &HashMap<String, char>,
+) {
+    let mut top_y = files_rect.min.y;
 
     // ---------- Empty state when the project has no folder ----------
     if !has_folder {
-        let empty_r = Rect::from_min_max(Pos2::new(rect.min.x, top_y), rect.max);
-        draw_no_folder_empty_state(deck, ui, &painter, empty_r);
+        draw_no_folder_empty_state(deck, ui, painter, files_rect);
         return;
     }
 
     // ---------- Filter field (24 px, recess, corners 6, Esc closes) ----------
     if deck.tree.filter_open {
-        let field_r = Rect::from_min_size(Pos2::new(rect.min.x + 6.0, top_y + 2.0), Vec2::new(rect.width() - 12.0, FILTER_BAR_H));
+        let field_r =
+            Rect::from_min_size(Pos2::new(files_rect.min.x + 6.0, top_y + 2.0), Vec2::new(files_rect.width() - 12.0, FILTER_BAR_H));
         top_y = field_r.max.y + 2.0;
         painter.rect_filled(field_r, 6.0, theme::pal().recess);
-        paint_filter_icon(&painter, Pos2::new(field_r.min.x + 12.0, field_r.center().y), theme::pal().text_3);
+        paint_filter_icon(painter, Pos2::new(field_r.min.x + 12.0, field_r.center().y), theme::pal().text_3);
 
         // Clear / close button on the right of the filter field
         let clear_r = Rect::from_min_size(Pos2::new(field_r.max.x - 20.0, field_r.min.y + 3.0), Vec2::new(17.0, 18.0));
@@ -516,19 +546,22 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
 
     // ---------- File list (flattened when filter or changed_only is active; tree otherwise) ----------
     let list_top = top_y + 2.0;
-    let list_rect = Rect::from_min_max(Pos2::new(rect.min.x, list_top), rect.max);
+    if files_rect.max.y <= list_top {
+        return;
+    }
+    let list_rect = Rect::from_min_max(Pos2::new(files_rect.min.x, list_top), files_rect.max);
     let flatten_active = !deck.tree.filter.trim().is_empty() || deck.tree.changed_only;
 
     if flatten_active {
         let all_files = deck.all_workspace_files();
-        let flat_rows = flatten_files(&all_files, &marks, &deck.tree.filter, deck.tree.changed_only);
+        let flat_rows = flatten_files(&all_files, marks, &deck.tree.filter, deck.tree.changed_only);
         if flat_rows.is_empty() {
             let msg =
                 if deck.tree.changed_only && deck.tree.filter.trim().is_empty() { t!("No changed files") } else { t!("No matching files") };
             let msg_r =
                 Rect::from_min_size(Pos2::new(list_rect.min.x + 12.0, list_rect.min.y + 12.0), Vec2::new(list_rect.width() - 24.0, 20.0));
-            let g = galley_trunc(&painter, msg, theme::ui(11.5), theme::pal().text_3, msg_r.width().max(1.0));
-            place(&painter, msg_r, Align2::LEFT_CENTER, g, theme::pal().text_3);
+            let g = galley_trunc(painter, msg, theme::ui(11.5), theme::pal().text_3, msg_r.width().max(1.0));
+            place(painter, msg_r, Align2::LEFT_CENTER, g, theme::pal().text_3);
             return;
         }
         let mut ui_list = ui.new_child(egui::UiBuilder::new().max_rect(list_rect).layout(egui::Layout::top_down(egui::Align::Min)));
@@ -577,7 +610,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
             for i in range {
                 let (row_rect, resp) = ui.allocate_exact_size(Vec2::new(width, FILE_ROW_H), Sense::click());
                 let row = &rows[i];
-                paint_row(deck, ui, row_rect, row, &resp, &marks);
+                paint_row(deck, ui, row_rect, row, &resp, marks);
                 let resp = tip(resp, row.entry.rel_path.clone());
                 if row.entry.is_dir {
                     if resp.clicked() {
@@ -952,14 +985,25 @@ mod tests {
         let (_, cap_min) = projects_max_height(500.0, 360.0, 0.05, false);
         assert_eq!(cap_min, MIN_PROJECTS_LIST_H);
 
-        // Ratio too large leaves at least SPLITTER_H + MIN_FILES_H (6 + 84 = 90 px) below.
+        // Ratio too large leaves at least SPLITTER_H + MIN_FILES_H + LAYOUT_ROW_H below.
         let (_, cap_max) = projects_max_height(500.0, 480.0, 0.95, false);
-        assert_eq!(cap_max, 500.0 - SPLITTER_H - MIN_FILES_H);
+        assert_eq!(cap_max, 500.0 - SPLITTER_H - MIN_FILES_H - LAYOUT_ROW_H);
 
-        // When FILES is collapsed, PROJECTS can grow up to avail_h - COLLAPSED_FILES_H.
-        let (max_col, cap_col) = projects_max_height(500.0, 450.0, 0.42, true);
-        assert_eq!(cap_col, 500.0 - COLLAPSED_FILES_H);
-        assert_eq!(max_col, 450.0);
+        // When FILES is collapsed, PROJECTS can grow up to avail_h - COLLAPSED_FILES_H - LAYOUT_ROW_H.
+        let (max_col, cap_col) = projects_max_height(500.0, 420.0, 0.42, true);
+        assert_eq!(cap_col, 500.0 - COLLAPSED_FILES_H - LAYOUT_ROW_H);
+        assert_eq!(max_col, 420.0);
+        let (max_col_capped, _) = projects_max_height(500.0, 480.0, 0.42, true);
+        assert_eq!(max_col_capped, 500.0 - COLLAPSED_FILES_H - LAYOUT_ROW_H);
+
+        // Very short sidebar: PROJECTS never overflows into the LAYOUT footer row.
+        let (max_short, cap_short) = projects_max_height(80.0, 200.0, 0.42, false);
+        assert_eq!(cap_short, 80.0 - LAYOUT_ROW_H);
+        assert_eq!(max_short, 80.0 - LAYOUT_ROW_H);
+        let (max_tiny, cap_tiny) = projects_max_height(20.0, 200.0, 0.42, false);
+        assert_eq!((max_tiny, cap_tiny), (0.0, 0.0));
+        let (max_tiny_col, cap_tiny_col) = projects_max_height(40.0, 200.0, 0.42, true);
+        assert_eq!((max_tiny_col, cap_tiny_col), (0.0, 0.0));
     }
 
     #[test]
@@ -968,8 +1012,11 @@ mod tests {
         assert!((r_low - MIN_PROJECTS_LIST_H / 500.0).abs() < 1e-4);
 
         let r_high = clamp_projects_ratio(500.0, 490.0);
-        let expected_high = (500.0 - SPLITTER_H - MIN_FILES_H) / 500.0;
+        let expected_high = (500.0 - SPLITTER_H - MIN_FILES_H - LAYOUT_ROW_H) / 500.0;
         assert!((r_high - expected_high).abs() < 1e-4);
+
+        // Very short sidebar falls back to the default ratio when no usable height remains above LAYOUT.
+        assert_eq!(clamp_projects_ratio(LAYOUT_ROW_H, 10.0), DEFAULT_PROJECTS_RATIO);
     }
 
     #[test]
