@@ -65,7 +65,7 @@ pub use exchange::PendingInfo;
 pub use headless::HeadlessOptions;
 pub use instances::Ident;
 pub use phase::{idle_label, phase_for_command, Phase};
-pub use tasks::{MergeBlock, MergeOutcome, MergeRefusal, Task, TaskError, TaskEvent, TaskMessage, TaskSpec, TaskStatus};
+pub use tasks::{MergeBlock, MergeOutcome, MergeRefusal, MergeStop, Task, TaskError, TaskEvent, TaskMessage, TaskSpec, TaskStatus};
 pub use team::Team;
 pub use usage::{AgentUsage, UsageGroup, UsageWindow};
 pub use workspace::{DirEntry, Eol, TextFile};

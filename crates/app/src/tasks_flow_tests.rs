@@ -1488,3 +1488,53 @@ fn a_tab_with_an_antigravity_log_saves_the_conversation_the_log_names() {
     let _ = env.deck.background();
     assert_eq!(env.core.tab_session(&project, &instance).as_deref(), Some(conversation));
 }
+
+#[test]
+fn asking_agent_to_resolve_conflict_works_from_merge_stopped_when_notice_block_is_none() {
+    if !git_available() {
+        eprintln!("git is not installed: test skipped");
+        return;
+    }
+    let mut env = Env::start();
+    env.pump("os agentes", |d| d.initialized);
+    let id = env.create_from_form("Resolve conflict from stopped", true);
+    env.pump("the tab", |d| d.tasks.task("t1").is_some_and(|t| d.tasks_tab_open(t)));
+    env.agent_commits(&id, "conflict.txt", "line1\n");
+    env.core.task_done(&env.project(), &id, "Done.").expect("done");
+    env.pump("review", |d| d.tasks.task("t1").is_some_and(|t| t.status == TaskStatus::Review));
+
+    // Simulate an automatic merge stop with conflict files, without a manual merge notice_block
+    assert!(env.deck.tasks.notice_block.is_none());
+    if let Some(t) = env.deck.tasks.tasks.iter_mut().find(|t| t.id == id) {
+        t.merge_stopped =
+            Some(holt_core::MergeStop { reason: "conflicted with base".into(), conflict_files: Some(vec!["conflict.txt".into()]) });
+    }
+
+    // Now clicking "Ask agent to resolve" invokes tasks_ask_agent
+    env.deck.tasks_ask_agent(&id);
+    assert!(env.deck.tasks.busy.is_some(), "must dispatch return task op using merge_stopped conflict files");
+    env.pump("the return", |d| d.tasks.busy.is_none());
+    let back = env.task(&id);
+    assert_eq!(back.status, TaskStatus::Running);
+    assert!(back.events.iter().any(|e| e.text.contains("returned to the agent")), "{:?}", back.events);
+}
+
+#[test]
+fn task_act_retry_dispatches_merge_with_report_and_start_without() {
+    if !git_available() {
+        eprintln!("git is not installed: test skipped");
+        return;
+    }
+    let mut env = Env::start();
+    env.pump("os agentes", |d| d.initialized);
+    let id = env.create_from_form("Retry behavior", false);
+    // Draft task failed to start: report is None.
+    if let Some(t) = env.deck.tasks.tasks.iter_mut().find(|t| t.id == id) {
+        t.status = TaskStatus::Failed;
+        t.error = Some("start failed".into());
+    }
+    // Retry on a failed task without report: directly runs start (no confirm needed).
+    env.deck.tasks_act(&id, TaskAct::Retry);
+    assert!(env.deck.tasks.confirm.is_none());
+    assert!(env.deck.tasks.busy.is_some());
+}

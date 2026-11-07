@@ -303,3 +303,35 @@ fn the_scope_is_normalized_and_validated_on_create() {
     assert_eq!(core.task_create(&env.project, spec("Next")).expect("create").id, "t2");
     core.shutdown();
 }
+
+#[test]
+fn a_task_rejected_and_redelivered_without_commits_advances_the_queue_when_merged() {
+    need_git!();
+    let env = start();
+    let core = &env.core;
+    let a = start_scoped(&env, "First task", &["crates/core"]);
+    deliver(&env, &a, "crates/core/first.rs");
+    core.task_merge(&env.project, "t1").expect("merge");
+    assert_eq!(status(&env, "t1"), TaskStatus::Validating);
+
+    // Reject task t1: it returns to Running.
+    core.task_reject(&env.project, "t1", "Fix something").expect("reject");
+    assert_eq!(status(&env, "t1"), TaskStatus::Running);
+
+    // Task t2 starts with overlapping scope and is queued behind t1.
+    let b = start_scoped(&env, "Second task", &["crates/core"]);
+    assert_eq!(b.status, TaskStatus::Queued);
+    assert_eq!(b.waiting_for.as_deref(), Some("t1"));
+
+    // t1 delivers again without new commits.
+    core.task_done(&env.project, "t1", "Nothing changed").expect("done");
+    assert_eq!(status(&env, "t1"), TaskStatus::Review);
+    assert_eq!(status(&env, "t2"), TaskStatus::Queued);
+
+    // Merge t1: it goes to Validating via the fast path and frees the scope for t2.
+    core.task_merge(&env.project, "t1").expect("merge");
+    assert_eq!(status(&env, "t1"), TaskStatus::Validating);
+    assert_eq!(status(&env, "t2"), TaskStatus::Running);
+
+    core.shutdown();
+}
