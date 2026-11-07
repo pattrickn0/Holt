@@ -29,6 +29,7 @@ Remaining development work is tracked in [backlog.md](backlog.md); overview in [
 
 Via CLI (`ask-agent --task`):
 
+- [ ] **`ask-agent --help` and `--task --help` readable at 100 columns (t24):** `ask-agent --help` prints short, grouped multi-line help (Ask an agent, Tasks, Memory/learnings, Mail/inbox, Diagnostics/team) with 3 key examples; `ask-agent --task --help` prints multi-line task syntax and options without horizontal overflow.
 - [x] (real use, t1–t16) In a git project, from an orchestrator tab: `ask-agent --task new "test" --start -` with request on stdin. The task tab opens in the background, its terminal is at `<repo>\.holt\worktrees\t1`, the request and rules arrive typed, and the main repository's `git status` remains clean.
 - [x] (real use, t1–t16; `--boss` was not verified) In the task tab, make a commit and run `ask-agent --task done t1 -`. `--task show t1` shows the report and diff, and the task's `--boss` reaches whoever created it.
 - [x] (real use, t1–t16) In the task tab, write the report to a file with accented characters (e.g. `C:\Temp\relatorio.md`) and run `ask-agent --task done t1 --file C:\Temp\relatorio.md`: `--task show t1` displays full accents (without `?`).
@@ -119,8 +120,11 @@ The queue (t8, the redesigned panel; check in English and in Portuguese):
   - Claude (`--append-system-prompt`), OpenCode (`instructions` in `OPENCODE_CONFIG_CONTENT`; verified with `opencode run --standalone`, TUI remaining);
   - **Codex** (`-c developer_instructions=...`; not installed on dev machine): verify value enters and, with npm installation on Windows (shim `.cmd`, raw text without quotes), `codex` does not reject option;
   - **Aider** (`--read`) and **Open Interpreter** (`--custom_instructions`): verify flags exist in installed version;
-  - **Antigravity** (quota exhausted at development time): folder receives `AGENTS.md` containing only app block, a notification warns once, and agent knows `ask-agent` and subagent rules; reopening does not modify file or warn.
-- [ ] `git status` of new project: with Claude, Codex, OpenCode, and Aider, clean; with Antigravity/Goose/Copilot, only `AGENTS.md` (once, without changing on each launch).
+  - **Antigravity** (quota exhausted at development time): folder receives `AGENTS.md` containing only app block, a notification warns once, and agent knows `ask-agent` and subagent rules; reopening does not modify file or warn;
+  - **Gemini** (`--include-directories data/gemini/<instance>`, with `GEMINI.md`; t24, not installed locally: pending verification);
+  - **Qwen Code** (`--append-system-prompt`; t24, not installed locally: pending verification);
+  - **Amazon Q Developer** (first message in `q chat "<rules>"`; t24, not installed locally: pending verification).
+- [ ] `git status` of new project: with Claude, Codex, OpenCode, Aider, Gemini, Qwen, and Amazon Q, clean (nothing written in project repo); with Antigravity/Goose/Copilot, only `AGENTS.md` (once, without changing on each launch).
 - [ ] Project that already has its own `AGENTS.md`: user text remains untouched, only gains app block (standard case), and no notification announces creation.
 - [ ] `ask-agent --learn` in project without `memory/learnings/` shows "project does not yet have learnings" and file format (`title`, `summary`, `touches`).
 
@@ -133,6 +137,7 @@ Inter-agent conversation ★
 - [x] **Slow response:** request a time-consuming task (over 90 s) from another agent. Claude's `ask-agent` finishes stating response will come later; when it arrives, it is **typed into Claude tab** as a new message.
 - [ ] In a **Terminal** tab (shell), run `ask-agent claude "hi"` and let Claude take time: command **waits until completion** (nothing is typed into your shell).
 - [x] Role delegation: `ask-agent claude@dev "task"` opens **Claude · Dev** tab in background.
+- [ ] **Refusal of agents that cannot answer (t24):** from inside a tab, `ask-agent aider "question"` returns error 400 immediately before opening any tab ("the agent \"aider\" cannot answer: it has no tool to run a shell command on its own... Ask one that can: ..."). Verify no tab is opened and no instance is created. `ask-agent --list` and `--team` display `aider (cannot answer)`, and `ask-agent --models` shows `cannot answer: no shell tool...`. Creating a task with `ask-agent --task new "x" --agent aider --file req.md` is rejected with explanation.
 - [ ] Closing tab of caller during wait: nothing hangs; other tab proceeds normally.
 - [ ] Long chain: A asks B, B asks C, and C tries to ask a 4th agent → rejected with "maximum depth" (limit is 2 hops).
 - [ ] `ask-agent claude@dev "/review src"` via Claude Bash arrives with `/review` intact.

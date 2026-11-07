@@ -25,6 +25,8 @@ pub struct AgentInfo {
     pub color: String,
     pub installed: bool,
     pub peer: bool,
+    /// See [`AgentDef::can_answer`].
+    pub can_answer: bool,
 }
 
 /// Full command to open an interactive tab in a pseudo-terminal.
@@ -70,6 +72,10 @@ pub struct AgentDef {
     pub label: &'static str,
     pub color: &'static str,
     pub peer: bool,
+    /// The CLI can run a shell command on its own, so it can answer another agent with `ask-agent --reply`. Aider cannot
+    /// (it only runs a command when the user types `/run`, and that does not answer a prompt): a question typed into its
+    /// tab would wait for a reply that can never come, so the bridge refuses it before opening the tab.
+    pub can_answer: bool,
     /// "Not installed" message (with `\r\n`, since it goes straight to the terminal).
     pub missing: &'static str,
 }
@@ -88,14 +94,23 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Claude",
         color: COLOR_CLAUDE,
         peer: true,
+        can_answer: true,
         missing: "Claude Code CLI (claude) not found. Install with:\r\n  npm install -g @anthropic-ai/claude-code",
     },
-    AgentDef { id: "antigravity", label: "Antigravity", color: COLOR_ANTIGRAVITY, peer: true, missing: ANTIGRAVITY_MISSING },
+    AgentDef {
+        id: "antigravity",
+        label: "Antigravity",
+        color: COLOR_ANTIGRAVITY,
+        peer: true,
+        can_answer: true,
+        missing: ANTIGRAVITY_MISSING,
+    },
     AgentDef {
         id: "codex",
         label: "Codex",
         color: COLOR_CODEX,
         peer: true,
+        can_answer: true,
         missing: "Codex CLI not found. Install with:\r\n  npm install -g @openai/codex",
     },
     AgentDef {
@@ -103,6 +118,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "OpenCode",
         color: "#f97316",
         peer: true,
+        can_answer: true,
         missing: "OpenCode not found. Install with:\r\n  npm install -g opencode-ai",
     },
     AgentDef {
@@ -110,6 +126,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Aider",
         color: "#22c55e",
         peer: true,
+        can_answer: false,
         missing: "Aider CLI not found. Install with:\r\n  pip install aider-chat",
     },
     AgentDef {
@@ -117,6 +134,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Goose",
         color: "#10b981",
         peer: true,
+        can_answer: true,
         missing: "Goose CLI not found. Install from: https://github.com/block/goose",
     },
     AgentDef {
@@ -124,6 +142,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Copilot",
         color: "#6e40c9",
         peer: true,
+        can_answer: true,
         missing: "GitHub Copilot CLI not found. Install with:\r\n  npm install -g @github/copilot",
     },
     AgentDef {
@@ -131,6 +150,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Gemini",
         color: COLOR_GEMINI,
         peer: true,
+        can_answer: true,
         missing: "Gemini CLI not found. Install with:\r\n  npm install -g @google/gemini-cli",
     },
     AgentDef {
@@ -138,17 +158,19 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Qwen",
         color: COLOR_QWEN,
         peer: true,
+        can_answer: true,
         missing: "Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code",
     },
-    AgentDef { id: "q", label: "Amazon Q", color: "#ff9900", peer: true, missing: "Amazon Q Developer CLI not found." },
+    AgentDef { id: "q", label: "Amazon Q", color: "#ff9900", peer: true, can_answer: true, missing: "Amazon Q Developer CLI not found." },
     AgentDef {
         id: "interpreter",
         label: "Interpreter",
         color: "#8b5cf6",
         peer: true,
+        can_answer: true,
         missing: "Open Interpreter not found. Install with:\r\n  pip install open-interpreter",
     },
-    AgentDef { id: "shell", label: "Terminal", color: COLOR_SHELL, peer: false, missing: "Shell not found." },
+    AgentDef { id: "shell", label: "Terminal", color: COLOR_SHELL, peer: false, can_answer: false, missing: "Shell not found." },
 ];
 
 impl AgentDef {
@@ -203,6 +225,25 @@ pub fn agent_def(id: &str) -> Option<&'static AgentDef> {
 /// Resolves an alias (`agy` → `antigravity`); unknown names come back unchanged.
 pub fn resolve_alias(name: &str) -> &str {
     ALIASES.iter().find(|(a, _)| *a == name).map(|(_, t)| *t).unwrap_or(name)
+}
+
+/// Whether the CLI `kind` can answer another agent (see [`AgentDef::can_answer`]); an unknown kind cannot.
+pub fn can_answer(kind: &str) -> bool {
+    agent_def(resolve_alias(kind)).is_some_and(|a| a.can_answer)
+}
+
+/// The refusal of a question to a CLI that cannot answer (`ask-agent` prints it and exits with 1). It says why and names
+/// the installed agents that can answer, so the asker does not have to guess.
+pub fn cannot_answer_error(kind: &str, alternatives: &[String]) -> String {
+    let label = agent_def(resolve_alias(kind)).map_or(kind, |a| a.id);
+    let why = format!(
+        "the agent \"{label}\" cannot answer: it has no tool to run a shell command on its own, so it can never send its answer with ask-agent --reply, and the question would wait until the time limit"
+    );
+    if alternatives.is_empty() {
+        format!("{why}. No other installed agent can answer either; install one (see ask-agent --models)")
+    } else {
+        format!("{why}. Ask one that can: {}", alternatives.join(", "))
+    }
 }
 
 /// Resolved executable + initial fixed arguments (e.g. `cmd.exe /d /c claude`).
@@ -475,6 +516,11 @@ impl Registry {
         AGENTS.iter().filter(|a| a.peer && self.resolve(a.id).is_some()).map(|a| a.id.to_owned()).collect()
     }
 
+    /// The installed peers that can answer a question (see [`AgentDef::can_answer`]): who `ask-agent` can be pointed at.
+    pub fn answering_peers(&self) -> Vec<String> {
+        self.peers().into_iter().filter(|p| can_answer(p)).collect()
+    }
+
     /// Like [`Registry::bridge_instructions`], for the instance `ident`, with its role.
     pub fn bridge_instructions_for(&self, ident: &Ident) -> String {
         let mut text = self.bridge_instructions(Some(&ident.id()));
@@ -523,6 +569,7 @@ impl Registry {
                 color: a.color.into(),
                 installed: self.resolve(a.id).is_some(),
                 peer: a.peer,
+                can_answer: a.can_answer,
             })
             .collect()
     }
@@ -697,12 +744,22 @@ fn write_instructions_file(data_dir: &Path, text: &str) -> std::io::Result<PathB
     Ok(path)
 }
 
+/// What precedes the Holt instructions when they travel as the first message of an Amazon Q chat.
+const Q_FIRST_MESSAGE: &str =
+    "These are the rules of the Holt environment you are running in. Keep them for the whole session and reply with one word, \"ok\".";
+
 /// Arguments that pass the Holt instructions to `kind`, without touching the user's repository. Claude
 /// (`--append-system-prompt`) and OpenCode (configuration, see [`models::opencode_tui`]) are assembled separately.
 /// - Codex: `-c developer_instructions=…` (the value is TOML; in a `.cmd` shim the quotes do not survive and the text
 ///   goes raw, which Codex accepts as text when it is not valid TOML);
 /// - Aider: `--read <file>` (read-only file);
-/// - Open Interpreter: `--custom_instructions` (adds to the system prompt).
+/// - Open Interpreter: `--custom_instructions` (adds to the system prompt);
+/// - Qwen Code: `--append-system-prompt` (present in the CLI's source from 0.15; read from the 0.27 bundle, never run here);
+/// - Amazon Q: no option and no folder outside the project, so the text is the first message of `q chat` (see
+///   [`Q_FIRST_MESSAGE`]; unverified, the CLI is not installed here).
+///
+/// Gemini has an option too, but it is a folder with a context file, not an argument with the text: see
+/// [`write_context_folder`].
 fn instruction_args(kind: &str, text: &str, file: Option<&Path>, shim: bool) -> Vec<String> {
     match kind {
         "codex" => {
@@ -711,6 +768,8 @@ fn instruction_args(kind: &str, text: &str, file: Option<&Path>, shim: bool) -> 
         }
         "aider" => file.map(|f| vec!["--read".into(), f.to_string_lossy().into_owned()]).unwrap_or_default(),
         "interpreter" => vec!["--custom_instructions".into(), text.to_owned()],
+        "qwen" => vec!["--append-system-prompt".into(), text.to_owned()],
+        "q" => vec!["chat".into(), format!("{Q_FIRST_MESSAGE}\n\n{text}")],
         _ => Vec::new(),
     }
 }
@@ -723,18 +782,31 @@ fn reads_only_agents_md(kind: &str) -> bool {
     matches!(kind, "goose" | "copilot")
 }
 
-/// Writes `data/agy/<instance>/AGENTS.md` with the instance instructions (only if it changed) and returns the folder, for
-/// Antigravity's `--add-dir`: `agy` reads the `AGENTS.md` of the added folders together with the project one (checked on
-/// 2026-10-24 with 1.4.7), so nothing is created in the user's repository.
-fn write_agy_instructions(data_dir: &Path, id: &str, text: &str) -> std::io::Result<PathBuf> {
-    let dir = data_dir.join("agy").join(id);
+/// Writes `data/<dir>/<instance>/<file>` with the instance instructions (only if it changed) and returns the folder: the
+/// channel of the CLIs that read a context file from a folder given on the command line, so nothing is created in the
+/// user's repository. Antigravity: `AGENTS.md` in `--add-dir` ([`write_agy_instructions`]); Gemini: `GEMINI.md` in
+/// `--include-directories`.
+fn write_context_folder(data_dir: &Path, dir: &str, id: &str, file: &str, text: &str) -> std::io::Result<PathBuf> {
+    let dir = data_dir.join(dir).join(id);
     std::fs::create_dir_all(&dir)?;
-    let path = dir.join("AGENTS.md");
+    let path = dir.join(file);
     let text = format!("{text}\n");
     if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
         std::fs::write(&path, text)?;
     }
     Ok(dir)
+}
+
+/// `data/agy/<instance>/AGENTS.md`, for Antigravity's `--add-dir`: `agy` reads the `AGENTS.md` of the added folders
+/// together with the project one (checked on 2026-10-24 with 1.4.7).
+fn write_agy_instructions(data_dir: &Path, id: &str, text: &str) -> std::io::Result<PathBuf> {
+    write_context_folder(data_dir, "agy", id, "AGENTS.md", text)
+}
+
+/// `data/gemini/<instance>/GEMINI.md`, for Gemini's `--include-directories`: the CLI looks for `GEMINI.md` in every
+/// workspace folder, the added ones too (read from the 0.67 bundle on 2026-11-07; never run here).
+fn write_gemini_instructions(data_dir: &Path, id: &str, text: &str) -> std::io::Result<PathBuf> {
+    write_context_folder(data_dir, "gemini", id, "GEMINI.md", text)
 }
 
 /// Assembles the command of an interactive tab (equivalent to `pty:spawn`).
@@ -843,6 +915,15 @@ pub(crate) fn spawn_spec_for(core: &Core, project: &str, ident: &Ident) -> Resul
                 args.push(dir.to_string_lossy().into_owned());
             }
             Err(e) => log::warn!("could not write the Antigravity instructions: {e}"),
+        }
+    }
+    if kind == "gemini" {
+        match write_gemini_instructions(&core.paths().data_dir, &id, &instructions) {
+            Ok(dir) => {
+                args.push("--include-directories".into());
+                args.push(dir.to_string_lossy().into_owned());
+            }
+            Err(e) => log::warn!("could not write the Gemini instructions: {e}"),
         }
     }
     let effort = core.instance_effort(project, ident);
@@ -955,12 +1036,16 @@ ok"
         assert_eq!(instruction_args("aider", text, Some(file), false), ["--read", "/data/holt-instructions.md"]);
         assert!(instruction_args("aider", text, None, false).is_empty());
         assert_eq!(instruction_args("interpreter", text, Some(file), false), ["--custom_instructions", text]);
-        // Claude and OpenCode are assembled separately; Antigravity reads the AGENTS.md.
-        for kind in ["claude", "opencode", "antigravity", "goose", "shell"] {
+        assert_eq!(instruction_args("qwen", text, Some(file), false), ["--append-system-prompt", text]);
+        assert_eq!(instruction_args("q", text, Some(file), false), vec!["chat".to_string(), format!("{Q_FIRST_MESSAGE}\n\n{text}")]);
+        // Claude and OpenCode are assembled separately; Antigravity and Gemini read context files.
+        for kind in ["claude", "opencode", "antigravity", "gemini", "goose", "shell"] {
             assert!(instruction_args(kind, text, Some(file), false).is_empty(), "{kind}");
         }
         assert!(["goose", "copilot"].iter().all(|k| reads_only_agents_md(k)));
-        assert!(["claude", "codex", "opencode", "aider", "interpreter", "shell", "antigravity"].iter().all(|k| !reads_only_agents_md(k)));
+        assert!(["claude", "codex", "opencode", "aider", "interpreter", "shell", "antigravity", "gemini", "qwen", "q"]
+            .iter()
+            .all(|k| !reads_only_agents_md(k)));
     }
 
     #[test]
@@ -981,6 +1066,32 @@ ok"
         assert_eq!(
             std::fs::read_to_string(&path).expect("read"),
             "two
+"
+        );
+    }
+
+    #[test]
+    fn can_answer_matches_registry() {
+        assert!(!can_answer("aider"));
+        assert!(!can_answer("shell"));
+        assert!(!can_answer("unknown_cli"));
+        for kind in ["claude", "antigravity", "codex", "opencode", "goose", "copilot", "gemini", "qwen", "q", "interpreter"] {
+            assert!(can_answer(kind), "{kind} should be able to answer");
+        }
+        let err = cannot_answer_error("aider", &["claude".into(), "codex".into()]);
+        assert!(err.contains("the agent \"aider\" cannot answer"));
+        assert!(err.contains("Ask one that can: claude, codex"));
+        let err_none = cannot_answer_error("aider", &[]);
+        assert!(err_none.contains("No other installed agent can answer either"));
+    }
+
+    #[test]
+    fn gemini_context_folder_is_written() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let dir = write_gemini_instructions(tmp.path(), "gemini@dev", "rules").expect("write");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("GEMINI.md")).expect("read"),
+            "rules
 "
         );
     }

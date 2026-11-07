@@ -96,7 +96,7 @@ fn arg_after(args: &[String], flag: &str) -> String {
 
 #[test]
 fn every_cli_gets_the_instructions_without_touching_the_users_repository() {
-    let env = start(&["claude", "codex", "opencode", "aider", "interpreter", "antigravity"]);
+    let env = start(&["claude", "codex", "opencode", "aider", "interpreter", "antigravity", "gemini", "qwen", "q"]);
     let (project, dir) = env.user_project("new");
 
     // Claude: system prompt, with the subagent rule and the general memory.
@@ -140,6 +140,24 @@ fn every_cli_gets_the_instructions_without_touching_the_users_repository() {
     assert!(own.starts_with(env.root.join("data")), "{}", own.display());
     let agy_text = std::fs::read_to_string(own.join("AGENTS.md")).expect("read");
     assert!(agy_text.contains("do NOT use your CLI's internal subagents") && agy_text.contains("antigravity@arquiteto"), "{agy_text}");
+
+    // Gemini: `GEMINI.md` in a data folder passed in `--include-directories`.
+    let gemini = env.spec(&project, "gemini@reviewer");
+    let inc = arg_after(&gemini.args, "--include-directories");
+    let gemini_dir = PathBuf::from(inc);
+    assert!(gemini_dir.starts_with(env.root.join("data")), "{}", gemini_dir.display());
+    let gemini_text = std::fs::read_to_string(gemini_dir.join("GEMINI.md")).expect("read gemini");
+    assert!(gemini_text.contains("do NOT use your CLI's internal subagents") && gemini_text.contains("gemini@reviewer"), "{gemini_text}");
+
+    // Qwen: `--append-system-prompt`.
+    let qwen = env.spec(&project, "qwen");
+    let qwen_text = arg_after(&qwen.args, "--append-system-prompt");
+    assert!(qwen_text.contains("do NOT use your CLI's internal subagents"), "{qwen_text}");
+
+    // Amazon Q: first chat message argument.
+    let q_spec = env.spec(&project, "q");
+    assert_eq!(q_spec.args[0], "chat");
+    assert!(q_spec.args[1].contains("do NOT use your CLI's internal subagents"), "{:?}", q_spec.args);
 
     // None of that dirties the user's repository.
     assert!(!dir.join("AGENTS.md").exists(), "the app created an AGENTS.md for a CLI that has its own channel");

@@ -226,7 +226,12 @@ fn handle(weak: Weak<CoreInner>, mut req: Request, port: u16, slot: Active, bodi
             Auth::Master => core.active_project_id(),
         };
         let models = core.instance_models(&project);
-        return reply(req, 200, json!({ "agents": core.peers(&project), "quota": core.quota_notes(&models), "models": models }));
+        let cannot_answer: Vec<String> = core.peers(&project).into_iter().filter(|p| !crate::agents::can_answer(p)).collect();
+        return reply(
+            req,
+            200,
+            json!({ "agents": core.peers(&project), "quota": core.quota_notes(&models), "models": models, "cannot_answer": cannot_answer }),
+        );
     }
     if *req.method() == Method::Get && (req.url() == "/models" || req.url().starts_with("/models?")) {
         let url = req.url().to_owned();
@@ -771,6 +776,11 @@ fn ask_tab(core: &Core, caller: &Caller, asked: &str, message: &str, opts: TabAs
                 }
             }
         }
+    }
+    // A CLI that cannot run a command could never send `--reply`: refuse before opening any tab or registering anything.
+    if !crate::agents::can_answer(&want.kind) {
+        let others: Vec<String> = core.inner.agents.answering_peers().into_iter().filter(|p| *p != caller.id).collect();
+        return (400, json!({ "error": crate::agents::cannot_answer_error(&want.kind, &others) }));
     }
     let resolved = core.with_instances(project, |list| list.resolve_or_create(&want, opts.force_new));
     let (ident, created) = match resolved {

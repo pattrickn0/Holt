@@ -184,9 +184,9 @@ of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
 | `ask-agent --model <model> <agent> "message"` | chooses the instance's LLM when opening it (`sonnet`, `opencode/glm-5.3-flash-free`…); combines with `--new`; error 409 if tab is already open with a different model |
 | `ask-agent --reply <n> "reply"` | replies to question number `n` |
 | `ask-agent --file <file> …` | reads message, brief, report, or feedback from a file (preserves accented characters, which PowerShell 5.1 converts to `?` on stdin `-`) |
-| `ask-agent --list` | lists available agents and open instances in the project, with model and quota notice |
-| `ask-agent --team` | shows your current lead and crew, with model and quota notice |
-| `ask-agent --models [<agent>]` | lists, per installed agent (the four official ones in order of greatest quota headroom first), models accepted by `--model` (`-free` first and marked "(free)"; OpenCode by provider), the `quota:` line for each group, and the **capability** table (`simple`, `medium`, `complex`). Bridge rejects (409) questions to exhausted models |
+| `ask-agent --list` | lists available agents and open instances in the project, with model, quota notice, and cannot-answer mark |
+| `ask-agent --team` | shows your current lead and crew, with model, quota notice, and cannot-answer mark |
+| `ask-agent --models [<agent>]` | lists, per installed agent (the four official ones in order of greatest quota headroom first), models accepted by `--model` (`-free` first and marked "(free)"; OpenCode by provider), the `quota:` line for each group, the **capability** table (`simple`, `medium`, `complex`), and cannot-answer notice for CLIs without autonomous shell tools. Bridge rejects questions to agents that cannot answer (400) and to exhausted models (409) |
 | `ask-agent --boss "message"` | asks or reports to your lead |
 | `ask-agent --learn [<file>...]` | without arguments, shows global learnings (`memory/learnings/`), index of remaining ones, and **Current situation** (running tasks and latest commits); with files, shows learnings matching them and warns at the top if another running task touches them |
 | `ask-agent --outline <file>...` | shows the outline of each file (signatures and line numbers, without bodies, in Rust and Markdown) to read only the necessary snippet with offset |

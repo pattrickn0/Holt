@@ -53,7 +53,10 @@ Bridge instructions (use of `ask-agent`, prohibition of CLI-internal subagents w
 | Open Interpreter | `--custom_instructions <text>` |
 | Antigravity | `--add-dir data/agy/<instance>` (where the app writes an `AGENTS.md` with instance name and role, combined with project's by `agy`) |
 | Goose, Copilot | read only the folder's `AGENTS.md`: if missing, the app creates one with only the `<!-- holt:start/end -->` block and shows a notification; if already present, updates only the block |
-| Amazon Q, Terminal | no instruction channel |
+| Gemini | `--include-directories data/gemini/<instance>` (where the app writes a `GEMINI.md` with instance name and role; unverified on this machine) |
+| Qwen | `--append-system-prompt <text>` (unverified on this machine) |
+| Amazon Q | first chat message `q chat "<rules>"` (unverified on this machine) |
+| Terminal | no instruction channel |
 
 The text in a shared file (`data/holt-instructions.md` and `AGENTS.md` block) does not list agents installed on the machine, so as not to dirty `git status` across computers.
 
@@ -71,10 +74,10 @@ Every request requires `x-holt-token` (constant-time comparison) and `Host: 127.
 | Route | Body / parameters | Response and HTTP codes |
 | :-- | :-- | :-- |
 | `POST /activate` | `{}` (master token only) | **200** `{"ok":true}` and brings window forward; **403** for agent token |
-| `GET /agents` | — | **200** `{"agents":[…],"models":{id:model},"quota":{id:quota}}` for caller's project |
-| `GET /models[?agent=<id>]` | `agent` optional | **200** `{"text"}` with inventory (`ask-agent --models`): the 4 official CLIs from most quota headroom to most spent, `quota:` line per group, and `capacidade` block; **400** if invalid; **404** if not installed |
-| `GET /team` | — (tab token only) | **200** `{"id","boss","crew","models","quota"}` and consumes team change notification; **400** with master token |
-| `POST /ask` | `{"to","message","depth","new","wait"[,"reply_to"][,"model"][,"ack"]}` (+ `"from"`, `"project"` with master token) | **200** `{"answer","request"}` within deadline; **202** `{"pending":true,"answer","request"}` after `wait` (reply typed later in tab); **400** unknown target, self-question, `depth >= 2`, invalid `model`, or CLI without model choice; **404** missing `reply_to`; **409** wait cycle, instance already open with different model (suggests `--new`), or exhausted quota (≥ 99.5%); **413** > 16 MB; **500** error or timeout (10 min) |
+| `GET /agents` | — | **200** `{"agents":[…],"models":{id:model},"quota":{id:quota},"cannot_answer":[…]}` for caller's project |
+| `GET /models[?agent=<id>]` | `agent` optional | **200** `{"text"}` with inventory (`ask-agent --models`): the 4 official CLIs from most quota headroom to most spent, `quota:` line per group, `capacidade` block, and `cannot answer` notice for CLIs without autonomous shell tools; **400** if invalid; **404** if not installed |
+| `GET /team` | — (tab token only) | **200** `{"id","boss","crew","models","quota","cannot_answer"}` and consumes team change notification; **400** with master token |
+| `POST /ask` | `{"to","message","depth","new","wait"[,"reply_to"][,"model"][,"ack"]}` (+ `"from"`, `"project"` with master token) | **200** `{"answer","request"}` within deadline; **202** `{"pending":true,"answer","request"}` after `wait` (reply typed later in tab); **400** unknown target, self-question, `depth >= 2`, invalid `model`, CLI without model choice, or CLI that cannot answer (no shell tool to run `ask-agent --reply`, e.g. Aider); **404** missing `reply_to`; **409** wait cycle, instance already open with different model (suggests `--new`), or exhausted quota (≥ 99.5%); **413** > 16 MB; **500** error or timeout (10 min) |
 | `POST /reply` | `{"to","message"[,"reply_to"]}` | **200** `{"answer"}` completing pending question; **400** invalid arguments; **404** no pending question from that sender |
 | `GET /inbox[?all=1]` | — (tab token only) | **200** `{"answers":[{"request","from","text","failed","ts","delivered"}],"mail":[{"mail","from","kind","request","ts","read","preview"}]}` (without `all`, undelivered answers and unread mail; `all=1`, last 20 of each) and marks the answers as delivered; an answer shown in full also counts as read for its mail; **400** with master token |
 | `GET /mail/<n>` | — (tab token only) | **200** `{"mail","from","kind":"question"\|"answer","request","ts","text","answerable"}` and marks the mail as read; **400** invalid number; **403** the mail is addressed to another agent, or the master token asked; **404** no such mail in the caller's project |
@@ -84,7 +87,7 @@ Every request requires `x-holt-token` (constant-time comparison) and `Host: 127.
 | `POST /signal` | `{"state":"busy"\|"idle"\|"tool"[,"phase":…][,"tool_name","tool_input"]}` | **200** `{"ok":true}` updating tab turn state and current phase (tab token only); `idle` clears the phase and types the notice again for unread mail (see Durable mail) |
 | `POST /usage` | `{"session":{"used","resets_at_ms"}\|null,"weekly":…}` | **200** `{"ok":true}` recording plan usage (`0.0..=1.0`, tab token only; `shell` → **400**) |
 | `GET /tasks`, `GET /tasks/<id>` | `?project=<id>` optional with master token | **200** `{"tasks":[…]}` (summary with `scope` and `waiting_for`) or complete `{"task":{…}}`; **404** does not exist |
-| `POST /tasks` | `{"title","brief"[,"kind"][,"model"][,"effort"][,"level"][,"base"][,"scope"][,"start"]}` | **200** `{"task"}` (with `start:true`, in `running` or `queued`); **400** invalid data, invalid scope, or without git; **403** active task agent |
+| `POST /tasks` | `{"title","brief"[,"kind"][,"model"][,"effort"][,"level"][,"base"][,"scope"][,"start"]}` | **200** `{"task"}` (with `start:true`, in `running` or `queued`); **400** invalid data, invalid scope, without git, or CLI that cannot run shell commands (cannot deliver tasks); **403** active task agent |
 | `POST /tasks/<id>/start`, `/merge`, `/validate`, `/discard` | `{}` | **200** `{"task"}`; **403** task agent; **404** does not exist; **409** incompatible state, dirty tree, merge conflict (`/merge`: the agent was asked to resolve it and the merge is approved, see the Tasks desk), or held worktree; **500** git failure |
 | `POST /tasks/<id>/done` | `{"report"}` | **200** `{"task"}` moving to `review` (task owner or master token only; valid in `running` or `validating` with new commits; if the merge was already approved, the task comes back already `validating`); **400** empty; **403** another agent; **409** invalid state, or the branch would conflict with the base (the message tells the agent to `git merge <base>`, resolve, check, commit and deliver again) |
 | `POST /tasks/<id>/return`, `/reject` | `{"feedback"}` | **200** `{"task"}` returning from `review` (`return`) or rejecting from `validating` (`reject`) to `running`; **400** empty; **403** task agent; **409** invalid state |
