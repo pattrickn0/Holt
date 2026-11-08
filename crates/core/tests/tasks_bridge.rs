@@ -352,3 +352,42 @@ fn the_bridge_reads_the_scope_of_a_new_task_and_queues_on_start() {
     assert_eq!(env.core.tasks(&env.project).len(), 2);
     env.core.shutdown();
 }
+
+#[test]
+fn a_manual_task_is_created_without_an_agent_and_its_creator_delivers() {
+    need_git!();
+    let env = start();
+    let creator = tab_token(&env, "shell");
+    let other = tab_token(&env, "claude");
+    let call = |token: &str, method: &str, path: &str, body: Value| http(&env.core, method, path, token, &body.to_string());
+
+    // Created by the orchestrator: no agent, no model, no tab instance.
+    let (st, b) = call(&creator, "POST", "/tasks", json!({ "title": "Docs", "brief": "Write them.", "manual": true }));
+    assert_eq!(st, 200, "{b}");
+    assert_eq!(
+        (b["task"]["manual"].as_bool(), b["task"]["kind"].as_str(), b["task"]["instance"].as_str()),
+        (Some(true), Some("manual"), Some(""))
+    );
+    assert_eq!(b["task"]["creator"].as_str(), Some("shell"));
+    // An agent, a model or a non-boolean "manual" is refused.
+    assert_eq!(call(&creator, "POST", "/tasks", json!({ "title": "x", "manual": true, "kind": "claude" })).0, 400);
+    assert_eq!(call(&creator, "POST", "/tasks", json!({ "title": "x", "manual": true, "model": "opus" })).0, 400);
+    assert_eq!(call(&creator, "POST", "/tasks", json!({ "title": "x", "manual": "yes" })).0, 400);
+
+    // Start, work in the worktree as the orchestrator would, and let the creator deliver.
+    let (st, b) = call(&creator, "POST", "/tasks/t1/start", json!({}));
+    assert_eq!((st, b["task"]["status"].as_str()), (200, Some("running")), "{b}");
+    let worktree = Path::new(b["task"]["worktree"].as_str().expect("worktree")).to_path_buf();
+    assert!(worktree.is_dir());
+    std::fs::write(worktree.join("docs.txt"), "manual\n").expect("w");
+    git(&worktree, &["add", "-A"]);
+    git(&worktree, &["commit", "-q", "-m", "docs"]);
+    // Another agent cannot deliver a task that is not its own.
+    assert_eq!(call(&other, "POST", "/tasks/t1/done", json!({ "report": "Wrote them." })).0, 403);
+    let (st, b) = call(&creator, "POST", "/tasks/t1/done", json!({ "report": "Wrote them." }));
+    assert_eq!((st, b["task"]["status"].as_str()), (200, Some("review")), "{b}");
+    // The rest of the lifecycle stays open to anyone, as for any task.
+    assert_eq!(call(&other, "POST", "/tasks/t1/merge", json!({})).0, 200);
+    assert_eq!(call(&other, "POST", "/tasks/t1/validate", json!({})).0, 200);
+    env.core.shutdown();
+}

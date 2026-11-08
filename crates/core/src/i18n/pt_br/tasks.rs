@@ -125,6 +125,8 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("Merge into {base}", "Mesclar em {base}"),
     ("Return", "Devolver"),
     ("Validate", "Validar"),
+    ("Manual", "Manual"),
+    ("Manual · no agent", "Manual · sem agente"),
     ("Reject", "Reprovar"),
     ("Go to tab", "Ir para a aba"),
     ("Reopen tab", "Reabrir aba"),

@@ -103,6 +103,15 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("brief delivered to the agent", "brief entregue ao agente"),
     ("Task {id} started: {title} ({instance})", "Tarefa {id} iniciada: {title} ({instance})"),
     (
+        "manual task: no agent; the creator works in the worktree and delivers the report",
+        "tarefa manual: sem agente; quem a criou trabalha na worktree e entrega o relatório",
+    ),
+    ("Task {id} started (manual): {title}", "Tarefa {id} iniciada (manual): {title}"),
+    (
+        "a manual task has no agent: drop the agent, the model and the effort (--agent, --model, --effort)",
+        "uma tarefa manual não tem agente: tire o agente, o modelo e o esforço (--agent, --model, --effort)",
+    ),
+    (
         "data of task {id} outside what was expected (folder {folder} / branch {branch}); I touched nothing",
         "dados da tarefa {id} fora do esperado (pasta {folder} / branch {branch}); não mexi em nada",
     ),
@@ -160,6 +169,7 @@ pub const ENTRIES: &[(&str, &str)] = &[
         "as tarefas rodam nas abas dos agentes: ligue \"Abrir abas dos agentes\" nas Configurações",
     ),
     ("returned to the agent with feedback", "devolvida ao agente com feedback"),
+    ("returned with feedback (manual task)", "devolvida com feedback (tarefa manual)"),
     ("feedback delivered to the agent", "feedback entregue ao agente"),
     // Merging.
     (
@@ -287,6 +297,10 @@ pub const ENTRIES: &[(&str, &str)] = &[
         "o motivo está vazio: diga o que não funcionou no teste",
     ),
     ("rejected in validation; returned to the agent with the reason", "reprovada na validação; devolvida ao agente com o motivo"),
+    (
+        "rejected in validation; returned with the reason (manual task)",
+        "reprovada na validação; devolvida com o motivo (tarefa manual)",
+    ),
     (
         "warning: the scope overlaps that of {other}, which is in progress; the next merge may conflict",
         "aviso: o escopo se sobrepõe ao da {other}, que está em andamento; a próxima mesclagem pode dar conflito",

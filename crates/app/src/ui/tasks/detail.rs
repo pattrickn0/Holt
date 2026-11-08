@@ -200,14 +200,19 @@ pub(super) fn detail_top(deck: &mut Deck, ui: &mut Ui, task: &Task, now: u64) {
     // Agent · model · effort, then the branch (mono) and the scope.
     let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::hover());
     let painter = ui.painter().clone();
-    paint_agent(deck, &painter, Pos2::new(r.min.x + PAD + 6.0, r.center().y), &task.kind);
-    let mut who = deck.agents.name(&task.kind);
-    if let Some(m) = tasks_ui::model_effort_text(task) {
-        who.push_str(" · ");
-        who.push_str(&m);
+    if task.manual {
+        let g = galley_trunc(&painter, t!("Manual · no agent"), theme::ui(11.5), p.text_2, (r.width() - 2.0 * PAD - 18.0).max(10.0));
+        place(&painter, Rect::from_min_max(Pos2::new(r.min.x + PAD + 18.0, r.min.y), r.max), Align2::LEFT_CENTER, g, p.text_2);
+    } else {
+        paint_agent(deck, &painter, Pos2::new(r.min.x + PAD + 6.0, r.center().y), &task.kind);
+        let mut who = deck.agents.name(&task.kind);
+        if let Some(m) = tasks_ui::model_effort_text(task) {
+            who.push_str(" · ");
+            who.push_str(&m);
+        }
+        let g = galley_trunc(&painter, &who, theme::ui(11.5), p.text_2, (r.width() - 2.0 * PAD - 18.0).max(10.0));
+        place(&painter, Rect::from_min_max(Pos2::new(r.min.x + PAD + 18.0, r.min.y), r.max), Align2::LEFT_CENTER, g, p.text_2);
     }
-    let g = galley_trunc(&painter, &who, theme::ui(11.5), p.text_2, (r.width() - 2.0 * PAD - 18.0).max(10.0));
-    place(&painter, Rect::from_min_max(Pos2::new(r.min.x + PAD + 18.0, r.min.y), r.max), Align2::LEFT_CENTER, g, p.text_2);
     let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::hover());
     deck.icons.paint(&painter, Icon::GitBranch, Pos2::new(r.min.x + PAD + 6.0, r.center().y), 12.0, p.text_3, 0.0);
     let g = galley_trunc(&painter, &tasks_ui::branch_line(task), theme::mono(11.0), p.text_2, (r.width() - 2.0 * PAD - 18.0).max(10.0));

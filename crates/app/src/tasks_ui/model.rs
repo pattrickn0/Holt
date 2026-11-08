@@ -487,19 +487,29 @@ impl TaskAct {
 
 /// The buttons of each status. `tab_open`: the agent's tab is open (otherwise, "Reopen tab").
 pub fn actions_for(task: &Task, tab_open: bool) -> Vec<TaskAct> {
-    let tab = if tab_open { TaskAct::GoToTab } else { TaskAct::ReopenTab };
-    match task.status {
-        TaskStatus::Draft => vec![TaskAct::Start, TaskAct::Discard],
+    let mut v = match task.status {
+        TaskStatus::Draft => vec![TaskAct::Start],
         // Starts by itself when the scope frees up; no tab or worktree yet.
-        TaskStatus::Queued => vec![TaskAct::Discard],
-        TaskStatus::Running => vec![tab, TaskAct::Discard],
-        TaskStatus::Review => vec![TaskAct::Merge, TaskAct::Return, tab, TaskAct::Discard],
-        TaskStatus::Validating => vec![TaskAct::Validate, TaskAct::Reject, tab, TaskAct::Discard],
+        TaskStatus::Queued => Vec::new(),
+        TaskStatus::Running => Vec::new(),
+        TaskStatus::Review => vec![TaskAct::Merge, TaskAct::Return],
+        TaskStatus::Validating => vec![TaskAct::Validate, TaskAct::Reject],
         // With a report, the merge failed (in an earlier version): it can be sent back to the agent as in review.
-        TaskStatus::Failed if task.report.is_some() => vec![TaskAct::Retry, TaskAct::Return, tab, TaskAct::Discard],
-        TaskStatus::Failed => vec![TaskAct::Retry, TaskAct::Discard],
+        TaskStatus::Failed if task.report.is_some() => vec![TaskAct::Retry, TaskAct::Return],
+        TaskStatus::Failed => vec![TaskAct::Retry],
         TaskStatus::Merged | TaskStatus::Discarded => Vec::new(),
+    };
+    // A manual task has no agent tab: nothing to go to or reopen.
+    if !task.manual && matches!(task.status, TaskStatus::Running | TaskStatus::Review | TaskStatus::Validating) {
+        v.push(if tab_open { TaskAct::GoToTab } else { TaskAct::ReopenTab });
     }
+    if matches!(task.status, TaskStatus::Failed) && task.report.is_some() && !task.manual {
+        v.push(if tab_open { TaskAct::GoToTab } else { TaskAct::ReopenTab });
+    }
+    if !matches!(task.status, TaskStatus::Merged | TaskStatus::Discarded) {
+        v.push(TaskAct::Discard);
+    }
+    v
 }
 
 /// Awaiting validation or completed, with the merge commit stored: the diff is what the merge brought
