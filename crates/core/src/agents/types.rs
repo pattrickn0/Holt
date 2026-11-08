@@ -12,6 +12,8 @@ pub struct AgentInfo {
     pub color: String,
     pub installed: bool,
     pub peer: bool,
+    /// Whether the agent has an autonomous shell tool and can answer inter-agent questions via `ask-agent --reply`.
+    pub can_answer: bool,
     /// `true` when the entry was manually added by the user (`Config::custom_agents`).
     pub custom: bool,
     /// Full command line (`program + args`) for user-added CLIs.
@@ -44,14 +46,7 @@ pub struct SpawnSpec {
     pub resumed: bool,
     /// Antigravity's `--log-file` for this process: where its conversation id shows up (see `resume::agy_session_in_log`).
     pub session_log: Option<PathBuf>,
-    /// Chat launch only: the task's initial prompt, which is sent as the first message instead of being a command-line
-    /// argument (see `chat.rs`).
-    pub first_message: Option<String>,
     /// The conversation this launch continues (the session id saved for the tab), when `resumed`. The command line
-    /// already carries it for the CLIs that resume by argument; a chat backend that resumes through its protocol
-    /// (Codex's `thread/resume`) reads it here.
+    /// already carries it for the CLIs that resume by argument.
     pub session: Option<String>,
-    /// Chat launch only: the Holt instructions, when the CLI's chat backend puts them in front of the first prompt of a new
-    /// conversation ([`crate::chat::ChatBackend::prompt_instructions`]).
-    pub instructions: Option<String>,
 }

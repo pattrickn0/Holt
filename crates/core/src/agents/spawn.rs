@@ -19,20 +19,6 @@ pub(crate) fn spawn_spec(core: &Core, project: &str, kind: &str) -> Result<Spawn
 /// in `HOLT_ROLE` and in the system prompt. The terminal opens in the folder of project `project`
 /// (on the first tab of a project that is not the active one, its AGENTS.md is written).
 pub(crate) fn spawn_spec_for(core: &Core, project: &str, ident: &Ident) -> Result<SpawnSpec, String> {
-    spawn_spec_with(core, project, ident, false)
-}
-
-/// Like [`spawn_spec_for`] for the chat view of the tab (Claude in its structured mode, see `chat.rs`): the same
-/// conversation, instructions, model and environment, but no terminal-only pieces (the turn hooks: the end of a turn is
-/// an event of the stream) and the task prompt becomes `first_message`.
-pub(crate) fn spawn_spec_chat(core: &Core, project: &str, ident: &Ident) -> Result<SpawnSpec, String> {
-    if !crate::chat::supports(&ident.kind) {
-        return Err(t!("{kind} has no chat view.", kind = ident.kind));
-    }
-    spawn_spec_with(core, project, ident, true)
-}
-
-fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Result<SpawnSpec, String> {
     let project_dir = core.project_path(project).ok_or_else(|| t!("Unknown project: {project}", project))?;
     let kind = ident.kind.as_str();
     let id = ident.id();
@@ -79,32 +65,19 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         }
         (None, None) => unreachable!(),
     };
-    // `gh copilot` (the old extension) has no ACP mode: only the standalone `copilot` has a chat view.
-    if chat && kind == "copilot" && !resolved.command().1.is_empty() {
-        return Err(t!("The chat view of Copilot needs the standalone Copilot CLI: npm install -g @github/copilot").to_owned());
-    }
     let mut args = Vec::new();
     // Initial prompt of a newly opened task (see `Core::set_boot_prompt`). In Claude it is positional and goes
     // first: `--add-dir` and `--allowedTools` accept several values and would swallow the text.
-    let mut boot = models::boot_prompt_flag(kind).and_then(|flag| core.take_boot_prompt(project, &id).map(|p| (flag, p)));
-    let first_message = if chat { boot.take().map(|(_, prompt)| prompt) } else { None };
+    let boot = models::boot_prompt_flag(kind).and_then(|flag| core.take_boot_prompt(project, &id).map(|p| (flag, p)));
     if let Some((None, prompt)) = &boot {
         args.push(prompt.clone());
     }
     // The tab's own conversation (never "the last one": see `resume.rs`). OpenCode's goes next to `--standalone` below.
     let launch = core.plan_launch(project, ident);
-    // A terminal launch resumes only when its command line carries the conversation (an ACP CLI resumes through its protocol,
-    // in the chat view only).
-    let resumed = launch.as_ref().is_some_and(|l| l.resumed && (chat || !l.args.is_empty()));
+    let resumed = launch.as_ref().is_some_and(|l| l.resumed && !l.args.is_empty());
     let launch_args = || launch.iter().flat_map(|l| l.args.iter().cloned());
     let mut session_log = None;
-    // The chat backend decides whether the conversation to resume goes in the arguments (Codex's protocol resumes by itself).
-    let backend = if chat { crate::chat::for_kind(kind) } else { None };
-    let resume_by_args = backend.is_none_or(|b| b.resumes_by_args());
-    if chat {
-        args.extend(backend.map(|b| b.leading_args()).unwrap_or_default());
-    }
-    if kind == "codex" && resume_by_args {
+    if kind == "codex" {
         // `resume <id>` is a subcommand: before every other option (Codex has no initial-prompt flag, so nothing precedes it).
         args.extend(launch_args());
     }
@@ -115,18 +88,16 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         // Answering another agent means running `ask-agent`: allow only that command, without asking.
         args.push("--allowedTools".into());
         args.push("Bash(ask-agent:*)".into());
-        // Hooks tell the start and the end of each turn (see `delivery.rs`); the chat reads them from the event stream.
-        if !chat {
-            match write_claude_hooks(&core.paths().data_dir, &project_dir) {
-                Ok(path) => {
-                    args.push("--settings".into());
-                    args.push(path.to_string_lossy().into_owned());
-                }
-                Err(e) => log::warn!("could not write the Claude hooks: {e}"),
+        // Hooks tell the start and the end of each turn (see `delivery.rs`).
+        match write_claude_hooks(&core.paths().data_dir, &project_dir) {
+            Ok(path) => {
+                args.push("--settings".into());
+                args.push(path.to_string_lossy().into_owned());
             }
+            Err(e) => log::warn!("could not write the Claude hooks: {e}"),
         }
     }
-    if kind == "codex" && resolved.shim.is_none() && !chat {
+    if kind == "codex" && resolved.shim.is_none() {
         // Codex end of turn → `ask-agent --signal idle <json>`; the JSON carries the thread id that `codex resume` takes.
         // Through cmd.exe the TOML value (with quotes) does not survive, so only with the direct executable.
         args.push("-c".into());
@@ -137,26 +108,21 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
     args.extend(crate::trust::prepare(kind, &cwd, &project_dir, &core.inner.home));
     if kind == "antigravity" {
         // The conversation id is not ours to choose: `agy` names it in its log (see `resume::agy_session_in_log`). A new
-        // process truncates the file, but a stale one is removed anyway so no old id is ever read. In chat mode, the
-        // stream's init event reports the conversation id directly.
-        if !chat {
-            let log = resume::agy_log_path(&core.paths().data_dir, &id);
-            if std::fs::create_dir_all(log.parent().unwrap_or(&core.paths().data_dir))
-                .and_then(|()| match std::fs::remove_file(&log) {
-                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-                    _ => Ok(()),
-                })
-                .is_ok()
-            {
-                args.extend(launch_args());
-                args.push("--log-file".into());
-                args.push(log.to_string_lossy().into_owned());
-                session_log = Some(log);
-            } else {
-                log::warn!("could not prepare the Antigravity log {}: this tab will not resume", log.display());
-            }
-        } else {
+        // process truncates the file, but a stale one is removed anyway so no old id is ever read.
+        let log = resume::agy_log_path(&core.paths().data_dir, &id);
+        if std::fs::create_dir_all(log.parent().unwrap_or(&core.paths().data_dir))
+            .and_then(|()| match std::fs::remove_file(&log) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            })
+            .is_ok()
+        {
             args.extend(launch_args());
+            args.push("--log-file".into());
+            args.push(log.to_string_lossy().into_owned());
+            session_log = Some(log);
+        } else {
+            log::warn!("could not prepare the Antigravity log {}: this tab will not resume", log.display());
         }
     }
     if kind == "claude" || kind == "antigravity" {
@@ -172,22 +138,23 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
             Err(e) => log::warn!("could not write the Antigravity instructions: {e}"),
         }
     }
+    if kind == "gemini" {
+        match write_gemini_instructions(&core.paths().data_dir, &id, &instructions) {
+            Ok(dir) => {
+                args.push("--include-directories".into());
+                args.push(dir.to_string_lossy().into_owned());
+            }
+            Err(e) => log::warn!("could not write the Gemini instructions: {e}"),
+        }
+    }
     let effort = core.instance_effort(project, ident);
     if kind == "opencode" {
         // The TUI has no --model or --system: its own server + model and instructions in the configuration
-        // (see `models::opencode_tui`). `opencode acp` reads the same configuration but is its own process: no
-        // `--standalone`, and the conversation is resumed by the protocol.
+        // (see `models::opencode_tui`).
         let (extra, (key, value)) = models::opencode_tui(model.as_deref(), generic_file.as_deref());
-        if let Some(backend) = backend {
-            args.extend(backend.spawn_args(&crate::chat::Launch { model: None, effort: None }));
-        } else {
-            args.extend(extra);
-            args.extend(launch.iter().flat_map(|l| l.args.iter().cloned()));
-        }
+        args.extend(extra);
+        args.extend(launch.iter().flat_map(|l| l.args.iter().cloned()));
         env.insert(key, value);
-    } else if let Some(backend) = backend {
-        // The chat view: the backend says how its CLI takes the model and the effort.
-        args.extend(backend.spawn_args(&crate::chat::Launch { model: model.as_deref(), effort }));
     } else if kind == "ollama" {
         if let Some(m) = &model {
             args.push("run".into());
@@ -197,7 +164,7 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         args.extend(models::cli_args(kind, m));
     }
     // Task effort (Antigravity's is already in the model name; see `Task::effort`).
-    if let Some(effort) = effort.filter(|_| backend.is_none()) {
+    if let Some(effort) = effort {
         args.extend(models::effort_args(kind, effort));
     }
     if let Some((Some(flag), prompt)) = boot {
@@ -224,10 +191,8 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         kind: kind.to_owned(),
         double_enter_on_mention: kind == "claude" || kind == "antigravity",
         model,
-        resumed: resumed && (kind != "antigravity" || session_log.is_some() || chat),
+        resumed: resumed && (kind != "antigravity" || session_log.is_some()),
         session_log,
-        first_message,
         session: launch.as_ref().filter(|l| l.resumed).and_then(|l| l.id.clone()),
-        instructions: backend.filter(|b| b.prompt_instructions()).map(|_| instructions),
     })
 }

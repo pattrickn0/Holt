@@ -226,7 +226,20 @@ fn handle(weak: Weak<CoreInner>, mut req: Request, port: u16, slot: Active, bodi
             Auth::Master => core.active_project_id(),
         };
         let models = core.instance_models(&project);
-        return reply(req, 200, json!({ "agents": core.peers(&project), "quota": core.quota_notes(&models), "models": models }));
+        let custom = core.inner.config.read().custom_agents.clone();
+        let cannot_answer: Vec<String> = core
+            .peers(&project)
+            .into_iter()
+            .filter(|p| {
+                let base = p.split('@').next().unwrap_or(p);
+                !crate::agents::can_answer_with(base, &custom)
+            })
+            .collect();
+        return reply(
+            req,
+            200,
+            json!({ "agents": core.peers(&project), "quota": core.quota_notes(&models), "models": models, "cannot_answer": cannot_answer }),
+        );
     }
     if *req.method() == Method::Get && (req.url() == "/models" || req.url().starts_with("/models?")) {
         let url = req.url().to_owned();
@@ -620,7 +633,7 @@ fn signal(core: &Core, auth: &Auth, msg: &Value) -> (u16, Value) {
         Some("tool") => {
             let phase = match msg.get("phase").and_then(Value::as_str) {
                 Some("") => return (200, json!({ "ok": true })),
-                Some(code) => match crate::chat::Phase::from_code(code) {
+                Some(code) => match crate::phase::Phase::from_code(code) {
                     Some(p) => p,
                     None => return (400, json!({ "error": "invalid phase" })),
                 },
@@ -629,7 +642,7 @@ fn signal(core: &Core, auth: &Auth, msg: &Value) -> (u16, Value) {
                         return (400, json!({ "error": "missing phase or tool_name" }));
                     };
                     let input = msg.get("tool_input").or_else(|| msg.get("input")).unwrap_or(&Value::Null);
-                    let Some(p) = crate::chat::Phase::from_tool(name, input) else {
+                    let Some(p) = crate::phase::Phase::from_tool(name, input) else {
                         return (200, json!({ "ok": true }));
                     };
                     p
@@ -750,7 +763,8 @@ fn ask_tab(core: &Core, caller: &Caller, asked: &str, message: &str, opts: TabAs
         Some(i) => (&asked[..i], &asked[i..]),
         None => (asked, ""),
     };
-    let kinds = core.inner.agents.peers();
+    let custom = core.inner.config.read().custom_agents.clone();
+    let kinds = core.inner.agents.peers_with(&custom);
     let kind = resolve_alias(base).to_owned();
     let Some(want) = kinds.contains(&kind).then(|| Ident::parse(&format!("{kind}{suffix}"))).flatten() else {
         return (
@@ -771,6 +785,11 @@ fn ask_tab(core: &Core, caller: &Caller, asked: &str, message: &str, opts: TabAs
                 }
             }
         }
+    }
+    // A CLI that cannot run a command could never send `--reply`: refuse before opening any tab or registering anything.
+    if !crate::agents::can_answer_with(&want.kind, &custom) {
+        let others: Vec<String> = core.inner.agents.answering_peers_with(&custom).into_iter().filter(|p| *p != caller.id).collect();
+        return (400, json!({ "error": crate::agents::cannot_answer_error(&want.kind, &others) }));
     }
     let resolved = core.with_instances(project, |list| list.resolve_or_create(&want, opts.force_new));
     let (ident, created) = match resolved {

@@ -45,8 +45,45 @@ use holt_core::util::decode_text;
 use holt_core::{AgentUsage, Ident};
 use serde_json::{json, Value};
 
-const USAGE: &str =
-    "Usage: ask-agent [--new] [--model <model>] <agent[@role[@name]]> \"message\"   |   ask-agent --reply <n> \"answer\"   |   ask-agent --list   |   ask-agent --team   |   ask-agent --models [agent]   |   ask-agent --boss \"message\"   |   ask-agent --learn [<file>...]   |   ask-agent --outline <file>...   |   ask-agent --inbox [--all]   |   ask-agent --read <n>   |   ask-agent --task new|list|show|start|merge|validate|reject|discard|done|return ... (tasks: ask-agent --task; a task's effort: --task new \"title\" --effort low|medium|high; the size of the work, which decides which models can handle it: --level simple|medium|complex (default medium); the write scope, with a queue: --task new \"title\" \"request\" --scope <path>...)";
+const USAGE: &str = "\
+Usage: ask-agent [--new] [--model <model>] <agent> \"message\"|--file <file>|-
+  (asks another agent or instance; communicates and operates Holt tasks)
+
+Ask an agent:
+  ask-agent <agent> \"message\"|--file <file>|-
+  ask-agent --new <agent> \"message\"
+  ask-agent --model <model> <agent> \"message\"
+  ask-agent --reply <n> \"answer\"|--file <file>|-
+  ask-agent --boss \"message\"|--file <file>|-
+
+Tasks:
+  ask-agent --task new \"title\" [--agent <m>] [--model <m>] [--start] --file <brief>
+  ask-agent --task list | show <id> | start <id> | merge <id> | discard <id>
+  ask-agent --task done <id> --file <report.md>
+  ask-agent --task return <id> \"feedback\"|--file <file>
+  (more options and help: ask-agent --task --help)
+
+Memory and learnings:
+  ask-agent --learn [<file>...]
+  ask-agent --outline <file>...
+
+Mail and inbox:
+  ask-agent --inbox [--all]
+  ask-agent --read <n>
+
+Diagnostics and team:
+  ask-agent --team
+  ask-agent --models [<agent>]
+  ask-agent --list
+
+Examples:
+  ask-agent claude \"Can you review the parser in src/parser.rs?\"
+  ask-agent --task new \"Fix Windows path escaping\" --start --file request.md
+  ask-agent --reply 12 \"Done, all tests pass on Windows and Linux.\"
+
+Notes:
+  <agent> is model[@role[@name]] (claude, claude@dev, claude@dev@ana).
+  Use --file <file> for long text or accents (PowerShell drops accents on stdin).";
 
 /// Seconds `ask-agent` waits for the answer before leaving it to be typed later.
 const DEFAULT_WAIT: u64 = 90;
@@ -341,8 +378,18 @@ fn take_flags(args: &mut Vec<String>) -> Result<(bool, Option<String>), String> 
     }
 }
 
+const MODELS_USAGE: &str = "\
+Usage: ask-agent --models [<agent>]
+
+Lists installed agents, the models accepted by --model, their remaining quota,
+and capability levels (simple, medium, complex).";
+
 /// `--models [agent]`: the agents installed on this computer and the models `--model` accepts.
 fn models_command(bridge: &Bridge, only: Option<&str>) -> ExitCode {
+    if only == Some("-h") || only == Some("--help") {
+        println!("{MODELS_USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let route = match only {
         Some(a) => format!("/models?agent={a}"),
         None => "/models".to_owned(),
@@ -426,16 +473,22 @@ fn quota_used_from_note(note: &str) -> Option<f32> {
         .max_by(f32::total_cmp)
 }
 
-/// `claude@dev (sonnet)` when the instance has a model.
+/// `claude@dev (sonnet)` when the instance has a model, marking agents that cannot answer.
 fn with_model(id: &str, models: &BTreeMap<String, String>) -> String {
-    match models.get(id) {
-        Some(m) => format!("{id} ({m})"),
-        None => id.to_owned(),
+    let parsed = Ident::parse(id);
+    let kind = parsed.as_ref().map_or(id, |i| i.kind.as_str());
+    let cannot = holt_core::agents::agent_def(holt_core::agents::resolve_alias(kind)).is_some_and(|a| !a.can_answer);
+    match (models.get(id), cannot) {
+        (Some(m), true) if m.contains("cannot answer") => format!("{id} ({m})"),
+        (Some(m), true) => format!("{id} ({m}; cannot answer)"),
+        (Some(m), false) => format!("{id} ({m})"),
+        (None, true) => format!("{id} (cannot answer)"),
+        (None, false) => id.to_owned(),
     }
 }
 
 /// The `models` map (id → model) of a bridge response, with the quota note (`quota`) of whoever is out or
-/// near the end: "gemini-4-argon-high; Gemini 4 Argon quota exhausted, renews in 9 h".
+/// near the end: "gemini-4-argon-high; Gemini 4 Argon quota exhausted, renews in 9 h", and marked if cannot answer.
 fn models_of(json: &Value) -> BTreeMap<String, String> {
     let map = |key: &str| -> BTreeMap<String, String> {
         json.get(key)
@@ -448,6 +501,18 @@ fn models_of(json: &Value) -> BTreeMap<String, String> {
     for (id, model) in models.iter_mut() {
         if let Some(note) = quota.get(id) {
             *model = format!("{model}; {note}");
+        }
+    }
+    if let Some(cannot) = json.get("cannot_answer").and_then(Value::as_array) {
+        for id in cannot.iter().filter_map(Value::as_str) {
+            models
+                .entry(id.to_owned())
+                .and_modify(|m| {
+                    if !m.contains("cannot answer") {
+                        *m = format!("{m}; cannot answer");
+                    }
+                })
+                .or_insert_with(|| "cannot answer".to_owned());
         }
     }
     models
@@ -646,7 +711,26 @@ fn read_command(bridge: &Bridge, args: &[String]) -> ExitCode {
 
 // ---------- Tasks (`--task`) ----------
 
-const TASK_USAGE: &str = "Usage: ask-agent --task new \"title\" [--agent <model>] [--model <m>] [--effort low|medium|high] [--level simple|medium|complex] [--base <branch>] [--start] -|\"request\"|--file <file> [--scope <path> [<path>...]]   |   ask-agent --task list   |   ask-agent --task show <id>   |   ask-agent --task start|merge|validate|discard <id>   |   ask-agent --task done <id> -|\"report\"|--file <file>   |   ask-agent --task return|reject <id> \"feedback\"|--file <file>|-   |   --scope lists the paths (files or folders, relative to the repository root, no wildcards) the task will touch and lasts until the next option: put the request before it or use --file; a task whose scope overlaps another one in progress waits in the queue and starts by itself (memory/ and Cargo.lock do not count)";
+const TASK_USAGE: &str = "\
+Usage:
+  ask-agent --task new \"title\" [--agent <model>] [--model <m>]
+                          [--effort low|medium|high] [--level simple|medium|complex]
+                          [--base <branch>] [--start]
+                          \"request\"|--file <file>|-
+                          [--scope <path> [<path>...]]
+  ask-agent --task list
+  ask-agent --task show <id>
+  ask-agent --task start|merge|validate|discard <id>
+  ask-agent --task done <id> \"report\"|--file <file>|-
+  ask-agent --task return|reject <id> \"feedback\"|--file <file>|-
+
+Options:
+  --scope <paths>   Paths (relative to repo root) the task touches. Overlapping
+                    tasks wait in queue and start automatically.
+  --start           Starts the task right away after creating it.
+  --file <file>     Reads the request/report/feedback from a file (preserves UTF-8).
+  --effort <e>      Reasoning effort (low, medium, high; Claude/Antigravity only).
+  --level <l>       Size of work: simple, medium, complex (chooses capable model).";
 
 /// Where a long text (request, report, feedback) comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -948,6 +1032,10 @@ fn task_detail(task: &Value) -> String {
 
 /// `ask-agent --task ...`: talks to the bridge's `/tasks`.
 fn task_command(bridge: &Bridge, args: &[String]) -> ExitCode {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("{TASK_USAGE}");
+        return ExitCode::from(if args.is_empty() { 2 } else { 0 });
+    }
     let cmd = match parse_task(args) {
         Ok(c) => c,
         Err(e) => return fail(format!("{e}\n{TASK_USAGE}"), 2),
@@ -1519,6 +1607,10 @@ ready"
         // The quota note goes next to the model.
         let json = json!({ "models": { "antigravity@arquiteto": "gemini-4-argon-high" }, "quota": { "antigravity@arquiteto": "quota exhausted" } });
         assert_eq!(with_model("antigravity@arquiteto", &models_of(&json)), "antigravity@arquiteto (gemini-4-argon-high; quota exhausted)");
+        // Agents that cannot answer are marked.
+        assert_eq!(with_model("aider", &models), "aider (cannot answer)");
+        let json_cannot = json!({ "cannot_answer": ["aider"] });
+        assert_eq!(models_of(&json_cannot).get("aider"), Some(&"cannot answer".to_string()));
     }
 
     #[test]

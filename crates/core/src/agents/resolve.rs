@@ -19,6 +19,39 @@ pub fn resolve_alias(name: &str) -> &str {
     ALIASES.iter().find(|(a, _)| *a == name).map(|(_, t)| *t).unwrap_or(name)
 }
 
+/// Whether agent `kind` can run `ask-agent --reply` autonomously in its tab.
+pub fn can_answer(kind: &str) -> bool {
+    agent_def(resolve_alias(kind)).is_some_and(|a| a.can_answer)
+}
+
+/// Whether a user-added CLI command can run `ask-agent --reply` autonomously in its tab.
+pub fn command_can_answer(command: &str) -> bool {
+    let Some((prog, _)) = split_command(command) else { return false };
+    let stem = Path::new(&prog).file_stem().and_then(|s| s.to_str()).unwrap_or(&prog).to_ascii_lowercase();
+    let canonical = resolve_alias(&stem);
+    if let Some(def) = agent_def(canonical) {
+        return def.can_answer;
+    }
+    !matches!(canonical, "sh" | "bash" | "zsh" | "fish" | "cmd" | "powershell" | "pwsh" | "llama-server")
+}
+
+/// Like [`can_answer`], including custom CLIs from `Config::custom_agents`.
+pub fn can_answer_with(kind: &str, custom: &[crate::config::CustomAgent]) -> bool {
+    if let Some(def) = agent_def(resolve_alias(kind)) {
+        return def.can_answer;
+    }
+    custom.iter().find(|c| c.id == kind).is_some_and(|c| command_can_answer(&c.command))
+}
+
+/// Error message when a caller tries to `ask-agent <kind> "..."` an agent that cannot run `ask-agent --reply`.
+pub fn cannot_answer_error(kind: &str, alternatives: &[String]) -> String {
+    let mut msg = format!("the agent \"{kind}\" cannot answer inter-agent questions: it has no shell tool to run `ask-agent --reply`");
+    if !alternatives.is_empty() {
+        msg.push_str(&format!(". Ask one that can: {}", alternatives.join(", ")));
+    }
+    msg
+}
+
 /// Resolved executable + initial fixed arguments (e.g. `cmd.exe /d /c claude`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Resolved {
@@ -410,6 +443,7 @@ impl Registry {
     // ---------- Peers and instructions ----------
 
     /// Only installed agents enabled as peers join the bridge.
+    #[cfg(test)]
     pub fn peers(&self) -> Vec<String> {
         self.peers_with(&[])
     }
@@ -423,6 +457,17 @@ impl Registry {
             }
         }
         out
+    }
+
+    /// Installed peer agents that can run `ask-agent --reply` autonomously (`can_answer`).
+    #[cfg(test)]
+    pub fn answering_peers(&self) -> Vec<String> {
+        self.answering_peers_with(&[])
+    }
+
+    /// Installed peer agents (including custom CLIs) that can run `ask-agent --reply` autonomously (`can_answer`).
+    pub fn answering_peers_with(&self, custom: &[crate::config::CustomAgent]) -> Vec<String> {
+        self.peers_with(custom).into_iter().filter(|p| can_answer_with(p, custom)).collect()
     }
 
     /// Like [`Registry::bridge_instructions`], for the instance `ident`, with its role and custom CLIs.
@@ -485,6 +530,7 @@ impl Registry {
                 color: a.color.into(),
                 installed: resolved.is_some(),
                 peer: a.peer,
+                can_answer: a.can_answer,
                 custom: false,
                 command: None,
                 local_model,
@@ -498,6 +544,7 @@ impl Registry {
                 color: c.color.clone(),
                 installed: true,
                 peer: true,
+                can_answer: command_can_answer(&c.command),
                 custom: true,
                 command: Some(c.command.clone()),
                 local_model,
@@ -510,6 +557,7 @@ impl Registry {
                 color: sh.color.into(),
                 installed: self.resolve(sh.id).is_some(),
                 peer: sh.peer,
+                can_answer: sh.can_answer,
                 custom: false,
                 command: None,
                 local_model: None,

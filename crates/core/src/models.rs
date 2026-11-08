@@ -363,6 +363,11 @@ fn join_marked(models: &[String], strip: impl Fn(&str) -> &str) -> String {
         .join(", ")
 }
 
+/// What `ask-agent --models`, `--list` and `--team` say next to an agent that cannot answer (see
+/// [`crate::agents::AgentDef::can_answer`]): a question to it is refused.
+pub const CANNOT_ANSWER_MARK: &str =
+    "cannot answer: no shell tool, so it cannot run ask-agent --reply (the bridge refuses questions to it)";
+
 /// The text of `ask-agent --models`: one line per agent (OpenCode, one per provider), short enough for
 /// an agent to read, and the quota of whoever has one (`quotas`: agent → line, from [`Core::quota_lines`]).
 /// Pure function (tested); whoever fetches the data is [`Core::models_inventory`].
@@ -396,6 +401,9 @@ pub fn format_inventory(items: &[AgentModels], quotas: &std::collections::HashMa
             ModelList::Failed => {
                 lines.push(format!("{agent}: could not list the models (the CLI did not answer); without --model it uses the default"))
             }
+        }
+        if !crate::agents::can_answer(agent) {
+            lines.push(format!("  {CANNOT_ANSWER_MARK}"));
         }
         if let Some(q) = quotas.get(agent) {
             lines.push(format!("  quota: {q}"));
@@ -485,8 +493,8 @@ impl Core {
         }
     }
 
-    /// The user picked another model for the tab (the chat composer): saved, so the next launch of the tab (chat or
-    /// terminal, also after reopening the app) uses it. `None` = the default. Antigravity keeps the effort it had
+    /// The user picked another model for the tab: saved, so the next launch of the tab (also after reopening the app)
+    /// uses it. `None` = the default. Antigravity keeps the effort it had
     /// (it is a suffix of the name); an effort the new model cannot carry is dropped. Error = invalid name or an agent
     /// that does not choose a model.
     pub fn set_tab_model(&self, project: &str, ident: &Ident, model: Option<&str>) -> Result<(), String> {
@@ -905,6 +913,7 @@ mod tests {
             "  opencode-go/: deepseek-v4.1-flash",
             "  quota: no reading",
             "aider: no model choice (uses the CLI default)",
+            "  cannot answer: no shell tool, so it cannot run ask-agent --reply (the bridge refuses questions to it)",
         ];
         let quotas = std::collections::HashMap::from([
             ("claude".to_owned(), "last reading 10 min ago".to_owned()),

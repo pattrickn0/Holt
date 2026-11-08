@@ -29,15 +29,17 @@ Decisions the user already made (do not reopen unless they ask):
   with the agent logos, followed by `"New agent"`); the "+" of the PROJECTS header creates a project (tooltip `"New project"`).
   No loose "+" in the title bar.
 - Window organization (`Tabs | Split | Highlight`) lives in the **left sidebar**, never in the title bar (the user confirmed
-  it twice: "move this to the left sidebar, like I asked you"). One 28 px row right under the Agents | Documents switch
-  (above PROJECTS): the section label `LAYOUT` (same style as `PROJECTS` / `FILES`) on the left, the switch right-aligned:
-  a `96×24` `recess` track (corners 6) with three `30×20` segments (corners 4, 2 px inset) and `16×11` glyphs (stroke 1.4);
-  idle `text_2`, hover `hover` + `text`, active `selected` + `text_strong`, not accent — a setting, not a state. At narrow
-  sidebar widths the label is dropped before the switch shrinks (`sidebar::layout_label_fits`). Tooltips say the effect
-  (`"Split: windows side by side"`). Only shown with the Agents view; with the sidebar collapsed the **LAYOUT** section at
-  the top of the ☰ menu (three rows, a check on the current one) is the way in. No switch, label or cycle button in the
-  title bar. The window of the active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at
-  62% (`theme::PANE_*`). Footer with shortcuts: not for now.
+  it twice: "move this to the left sidebar, like I asked you"). One 36 px footer row (`LAYOUT_ROW_H`) at the bottom of the
+  sidebar, right below the `FILES` section (after the file list, with a 1 px separator above it so it never scrolls away):
+  the section label `LAYOUT` (same style as `PROJECTS` / `FILES`) on the left, the switch right-aligned: a `96×24` `recess`
+  track (corners 6, 6 px top/bottom margin) with three `30×20` segments (corners 4, 2 px inset, 1 px gap) and `16×11`
+  pixel-snapped glyphs (stroke 1.3); idle `text_3`, hover `hover` + `text`, active `selected` + `text_strong`, not accent —
+  a setting, not a state. At narrow sidebar widths the label is dropped before the switch shrinks
+  (`sidebar::layout_label_fits`). Tooltips say the effect (`"Split: windows side by side"`). Only shown with the Agents view;
+  with the sidebar collapsed the **LAYOUT** section at the top of the ☰ menu (three rows with the `16×11` glyph, `selected_soft`
+  pill and check on the current one) is the way in. No switch, label or cycle button in the title bar. The window of the
+  active tab has a 1 px border and a 3 px halo in the agent's color, and the others sit at 62% (`theme::PANE_*`). Footer with
+  shortcuts: not for now.
 - FILES header: only **filter** and **changed only** are always visible (toggles with a lit state); **collapse all**
   fades in (~120 ms) while the pointer is over the FILES area, and **refresh** lives only in the header's right-click
   menu (the tree already refreshes from the watcher). A project without a folder shows no header actions at all (no dead
@@ -110,9 +112,9 @@ to the system font.
   active segment in the accent color; "Docs" if the segment cannot fit "Documents n"; with the sidebar collapsed it moves
   to the title bar, compact, 24 px), `separator`, PROJECTS (24 px header, scrollable project/agent tree), a **draggable
   6 px divider** (`paint_splitter` on hover/drag, saved as `sidebarProjectsRatio`, minimum 3 agent rows above and FILES
-  header + 3 file rows below; when the tree is shorter than the cap, FILES rises right under it with no empty band), and
-  FILES (24 px header; clicking collapses/expands, and when collapsed the header stays pinned at the bottom of the
-  sidebar). Separators as wide as the island.
+  header + 3 file rows below; when the tree is shorter than the cap, FILES rises right under it with no empty band),
+  FILES (24 px header; clicking collapses/expands, and when collapsed the header stays pinned right above `LAYOUT`), and
+  the `LAYOUT` footer row (36 px, 1 px top separator, `96×24` track). Separators as wide as the island.
 - Sidebar rows have a 4 px margin (the selection does not touch the edge): project **24 px** (`PROJECT_ROW_H`, the same as an
   agent row; ▾/▸ always present and greyed in `text_faint` when the project has no folder/agents; a 12 px folder glyph in
   `text_3` before the name (600); the active project shows `"<branch> · <N>M"` on the right in `meta(10)` `text_3`, a long
@@ -145,15 +147,8 @@ to the system font.
   not have it). `StripKind::colored` picks between agent and document.
 - Icon buttons: in the title bar 26×24, corners 5; in the PROJECTS header 20×20, corners 4; in the FILES header 22×22,
   corners 5; hover `hover`.
-- Pane header, view switch (`panes::view_switch`): for the tabs that have a chat view, a 48×22 `recess` track (corners 6) with two
-  icon segments (`Icon::ChatBubble`, `Icon::Terminal`, 13 px); the active segment is filled with the tab agent's colour and
-  its icon is `on_accent`; the other is `text_2` (`text` and `hover` on hover). The tooltips are "Chat view" / "Terminal view".
-  Text segments ("Chat | Terminal") are no longer used for it.
-- Chat composer row (`ui/chat.rs`): attach, mic, then the **model and effort pickers** (`picker_chip`: 22 px, corners 5, `meta(10.5)`
-  in `text_3`, a "▾", `hover` fill while hovered or open) and the context use in plain `meta` text. The menu is
-  `tasks::dropdown_popup` (the task form's component) opened **upward** from the chip (`above = true`, 230 px / 150 px wide). A chip
-  that cannot be used (a turn is running, or the CLI has no effort) is dimmed and its tooltip says why. Debug states:
-  `HOLT_DEBUG_UI=chat-demo-model` / `chat-demo-effort` open each picker over the demo conversation.
+- Pane header: tabs only, then the attachment, microphone and "+" icon buttons on the right; there is no view switch
+  (the chat view was removed, a tab is its terminal).
 - Row of a diff's file list: 20 px, selected `selected_soft`; letters and `+`/`−` in `meta(10)`.
 - Right bar: 32 px header (`TOPBAR_H`) with 3 named pill tabs (Tasks, Git, GitHub; 22 px tall, corners 5, 10 px pill
   badge). There is no Chat tab: agent messages live in each task's Timeline and system notices are notifications.

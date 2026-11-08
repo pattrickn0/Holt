@@ -244,7 +244,10 @@ impl Deck {
         }
         match act {
             TaskAct::Start => self.tasks_run(id.to_owned(), TaskOp::Start),
-            TaskAct::Retry => self.tasks_run(id.to_owned(), TaskOp::Start),
+            TaskAct::Retry => {
+                let op = if task.report.is_some() { TaskOp::Merge } else { TaskOp::Start };
+                self.tasks_run(id.to_owned(), op);
+            }
             TaskAct::Merge => self.tasks_run(id.to_owned(), TaskOp::Merge),
             TaskAct::Validate => self.tasks_run(id.to_owned(), TaskOp::Validate),
             TaskAct::Discard => self.tasks_run(id.to_owned(), TaskOp::Discard),
@@ -272,7 +275,13 @@ impl Deck {
     /// "Ask the agent to commit" / "…resolve the conflict": sends the task back with the request ready from the refusal reason.
     pub fn tasks_ask_agent(&mut self, id: &str) {
         let Some(task) = self.tasks.task(id) else { return };
-        let Some(feedback) = self.tasks.notice_block.as_ref().and_then(|b| b.return_feedback(task)) else { return };
+        let feedback = self.tasks.notice_block.as_ref().and_then(|b| b.return_feedback(task)).or_else(|| {
+            task.merge_stopped
+                .as_ref()
+                .and_then(|s| s.conflict_files.as_ref())
+                .and_then(|files| MergeBlock::Conflict(files.clone()).return_feedback(task))
+        });
+        let Some(feedback) = feedback else { return };
         self.tasks_run(id.to_owned(), TaskOp::Return(feedback));
     }
 

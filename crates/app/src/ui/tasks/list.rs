@@ -154,10 +154,11 @@ pub(super) fn row_actions(task: &Task) -> Vec<(String, Act, ButtonKind, &'static
             ButtonKind::Primary,
             t!("Sends the task back to the agent asking it to merge the base into its branch (git merge) and resolve the conflicting files"),
         )],
+        Mark::Stopped => vec![(TaskAct::Merge.label(task), Act::Task(id(), TaskAct::Merge), ButtonKind::Primary, TaskAct::Merge.tip())],
         Mark::Failed => vec![(TaskAct::Retry.label(task), Act::Task(id(), TaskAct::Retry), ButtonKind::Primary, TaskAct::Retry.tip())],
         _ => Vec::new(),
     };
-    if matches!(mark_of(task), Mark::Review | Mark::Validate) && can_show_diff(task) {
+    if matches!(mark_of(task), Mark::Review | Mark::Validate | Mark::Stopped) && can_show_diff(task) {
         v.push(diff(if task.status == TaskStatus::Validating { t!("What changed") } else { t!("Diff") }));
     }
     v

@@ -343,6 +343,18 @@ mod tests {
     }
 
     #[test]
+    fn task_number_parses_only_t_prefixed_identifiers() {
+        assert_eq!(task_number("t1"), 1);
+        assert_eq!(task_number("t12"), 12);
+        assert_eq!(task_number("t0"), 0);
+        assert_eq!(task_number("t999"), 999);
+        assert_eq!(task_number("tt12"), 0);
+        assert_eq!(task_number("12"), 0);
+        assert_eq!(task_number(""), 0);
+        assert_eq!(task_number("invalid"), 0);
+    }
+
+    #[test]
     fn the_diff_is_available_while_the_branch_exists_or_after_the_merge_commit_is_kept() {
         let t = |status, started: bool| Task { status, started_ms: started.then_some(1), ..Task::default() };
         let merged = |status| Task { merge_commit: Some("0123456789abcdef0123456789abcdef01234567".into()), ..t(status, true) };

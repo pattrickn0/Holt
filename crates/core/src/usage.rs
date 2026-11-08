@@ -1,8 +1,8 @@
 //! Agent plan usage (session and weekly limit), shown in the title bar.
 //!
 //! Sources (each fills [`UsageStore`] with [`Core::set_usage`]):
-//! - **Claude**: Claude Code statusline in the terminal view (`ask-agent --usage`, bridge route `POST /usage`), and the
-//!   `rate_limit_event` of its stream in the chat view, where the statusline never runs ([`from_claude_rate_limits`]);
+//! - **Claude**: Claude Code statusline in the terminal view (`ask-agent --usage`, bridge route `POST /usage`), and, for
+//!   a `-p` run, the `rate_limit_event` of its stream ([`from_claude_rate_limits`]);
 //! - **Codex**: latest `rate_limits` from `~/.codex/sessions/**/rollout-*.jsonl` files;
 //! - **Antigravity**: quota queried via the API that the CLI itself uses;
 //!
@@ -515,8 +515,8 @@ pub fn from_claude_statusline(v: &Value) -> AgentUsage {
     AgentUsage { session: window("five_hour"), weekly: window("seven_day"), ..Default::default() }
 }
 
-/// Usage from the `rate_limit_info` of a `rate_limit_event` in Claude Code's stream (the chat view, `-p`, where the
-/// statusline never runs): `unifiedWindows.{five_hour,seven_day}.{utilization (0..1), resetsAt (s Unix)}`. Without
+/// Usage from the `rate_limit_info` of a `rate_limit_event` in Claude Code's stream (`-p`, where the statusline never
+/// runs): `unifiedWindows.{five_hour,seven_day}.{utilization (0..1), resetsAt (s Unix)}`. Without
 /// them (API key, unknown format), empty.
 pub fn from_claude_rate_limits(info: &Value) -> AgentUsage {
     let window = |key: &str| {

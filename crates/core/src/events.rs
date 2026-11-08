@@ -147,7 +147,7 @@ pub enum CoreEvent {
         project: String,
         id: String,
         busy: bool,
-        phase: Option<crate::chat::Phase>,
+        phase: Option<crate::phase::Phase>,
     },
     /// The usage of some agent changed (see `Core::usage_snapshot`).
     UsageChanged,

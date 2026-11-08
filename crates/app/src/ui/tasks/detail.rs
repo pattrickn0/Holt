@@ -17,11 +17,10 @@ pub(super) fn footer_actions(task: &Task, tab_open: bool) -> Vec<(String, Act, B
         Mark::Draft => vec![act(TaskAct::Start, BtnKind::Primary)],
         Mark::Queued => Vec::new(),
         Mark::Running | Mark::Conflict => vec![act(tab, BtnKind::Secondary)],
-        Mark::Review => vec![
+        Mark::Review | Mark::Stopped => vec![
             act(TaskAct::Merge, BtnKind::Primary),
             (t!("Return…").to_owned(), Act::Task(id(), TaskAct::Return), BtnKind::Secondary, TaskAct::Return.tip()),
         ],
-        Mark::Stopped => vec![(t!("Return…").to_owned(), Act::Task(id(), TaskAct::Return), BtnKind::Secondary, TaskAct::Return.tip())],
         Mark::Validate => vec![
             act(TaskAct::Validate, BtnKind::Primary),
             (t!("Reject…").to_owned(), Act::Task(id(), TaskAct::Reject), BtnKind::Secondary, TaskAct::Reject.tip()),

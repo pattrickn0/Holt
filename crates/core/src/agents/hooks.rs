@@ -82,12 +82,19 @@ pub(super) fn write_instructions_file(data_dir: &Path, text: &str) -> std::io::R
     Ok(path)
 }
 
+/// First-message preamble passed to `q chat "<prompt>"` so Amazon Q treats the Holt block as session rules and waits.
+pub(super) const Q_FIRST_MESSAGE: &str =
+    "Read and follow these Holt rules for this session. Do not execute commands yet; acknowledge briefly and wait for the next prompt.";
+
 /// Arguments that pass the Holt instructions to `kind`, without touching the user's repository. Claude
-/// (`--append-system-prompt`) and OpenCode (configuration, see [`models::opencode_tui`]) are assembled separately.
+/// (`--append-system-prompt`) and OpenCode (configuration, see [`models::opencode_tui`]) are assembled separately;
+/// Antigravity (`--add-dir`) and Gemini (`--include-directories`) use context folders in `data/`.
 /// - Codex: `-c developer_instructions=…` (the value is TOML; in a `.cmd` shim the quotes do not survive and the text
 ///   goes raw, which Codex accepts as text when it is not valid TOML);
 /// - Aider: `--read <file>` (read-only file);
-/// - Open Interpreter: `--custom_instructions` (adds to the system prompt).
+/// - Open Interpreter: `--custom_instructions` (adds to the system prompt);
+/// - Qwen Code: `--append-system-prompt <text>` (present in Qwen Code 0.15+);
+/// - Amazon Q: `chat "<Q_FIRST_MESSAGE>\n\n<text>"` (no system-prompt flag, so rules go as the initial chat message).
 pub(super) fn instruction_args(kind: &str, text: &str, file: Option<&Path>, shim: bool) -> Vec<String> {
     match kind {
         "codex" => {
@@ -96,29 +103,43 @@ pub(super) fn instruction_args(kind: &str, text: &str, file: Option<&Path>, shim
         }
         "aider" => file.map(|f| vec!["--read".into(), f.to_string_lossy().into_owned()]).unwrap_or_default(),
         "interpreter" => vec!["--custom_instructions".into(), text.to_owned()],
+        "qwen" => vec!["--append-system-prompt".into(), text.to_owned()],
+        "q" => vec!["chat".into(), format!("{Q_FIRST_MESSAGE}\n\n{text}")],
         _ => Vec::new(),
     }
 }
 
 /// CLIs without an instructions option that only read the `AGENTS.md` of the folder they run in: without the
 /// file, they do not know about `ask-agent`. For them the app creates an `AGENTS.md` with only its block when the
-/// folder has none (see [`Core::ensure_agents_file`]). Antigravity left this group: it reads the `AGENTS.md` of a folder
-/// passed in `--add-dir` (see [`write_agy_instructions`]).
+/// folder has none (see [`Core::ensure_agents_file`]). Antigravity (`--add-dir`) and Gemini (`--include-directories`)
+/// use their own context folders in `data/` instead.
 pub(super) fn reads_only_agents_md(kind: &str) -> bool {
     matches!(kind, "goose" | "copilot" | "ollama" | "mimo" | "crush" | "cline" | "amp" | "droid" | "cn" | "llama-cli" | "plandex")
         || agent_def(kind).is_none()
+}
+
+/// Writes `data/<subdir>/<id>/<filename>` with the instance instructions (only if it changed) and returns the folder.
+pub(super) fn write_context_folder(data_dir: &Path, subdir: &str, filename: &str, id: &str, text: &str) -> std::io::Result<PathBuf> {
+    let dir = data_dir.join(subdir).join(id);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(filename);
+    let text = format!("{text}\n");
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+        std::fs::write(&path, text)?;
+    }
+    Ok(dir)
 }
 
 /// Writes `data/agy/<instance>/AGENTS.md` with the instance instructions (only if it changed) and returns the folder, for
 /// Antigravity's `--add-dir`: `agy` reads the `AGENTS.md` of the added folders together with the project one (checked on
 /// 2026-10-24 with 1.4.7), so nothing is created in the user's repository.
 pub(super) fn write_agy_instructions(data_dir: &Path, id: &str, text: &str) -> std::io::Result<PathBuf> {
-    let dir = data_dir.join("agy").join(id);
-    std::fs::create_dir_all(&dir)?;
-    let path = dir.join("AGENTS.md");
-    let text = format!("{text}\n");
-    if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
-        std::fs::write(&path, text)?;
-    }
-    Ok(dir)
+    write_context_folder(data_dir, "agy", "AGENTS.md", id, text)
+}
+
+/// Writes `data/gemini/<instance>/GEMINI.md` with the instance instructions (only if it changed) and returns the folder,
+/// for Gemini CLI's `--include-directories`: Gemini loads `GEMINI.md` from all included workspace directories, so nothing
+/// is created in the user's repository.
+pub(super) fn write_gemini_instructions(data_dir: &Path, id: &str, text: &str) -> std::io::Result<PathBuf> {
+    write_context_folder(data_dir, "gemini", "GEMINI.md", id, text)
 }
