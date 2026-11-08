@@ -79,7 +79,7 @@ A limitation that starts getting in the way during actual use also moves up ther
 
 For anyone modifying the code; these are not tasks.
 
-- **Claude Code duplicates conversation in history on every width change** (Windows): it clears only the screen and reprints,
+- **Claude Code duplicates conversation in history on every width change** (Windows; the user does not see it in current use, 2026-11-07): it clears only the screen and reprints,
   without `ESC[3J`. The PTY only resizes after window dimensions remain stationary for 150 ms (one drag = one copy); on tab
   switch in Highlight mode, for 600 ms, and the next tab resize waits for reprinting to finish (300 ms quiescent output, 3 s ceiling).
   History also accumulates 1 to 3 repeated lines across width changes. See
