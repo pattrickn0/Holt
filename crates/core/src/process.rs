@@ -133,14 +133,6 @@ mod job {
     }
 }
 
-/// Makes the process die with the app, even if the app crashes (Windows Job Object; nothing to do elsewhere).
-pub(crate) fn die_with_app(child: &Child) {
-    #[cfg(windows)]
-    job::adopt(child);
-    #[cfg(not(windows))]
-    let _ = child;
-}
-
 /// Kills the process and its descendants (best effort).
 pub(crate) fn kill_tree(child: &mut Child) {
     #[cfg(windows)]
@@ -160,23 +152,6 @@ pub(crate) fn kill_tree(child: &mut Child) {
         }
     }
     let _ = child.kill();
-}
-
-/// Interrupts the process group (best effort SIGINT).
-pub(crate) fn interrupt_process(child: &Child) {
-    #[cfg(unix)]
-    {
-        if let Ok(pid) = i32::try_from(child.id()) {
-            // SAFETY: `kill` sends SIGINT to the process group created by `process_group(0)`.
-            unsafe {
-                libc::kill(-pid, libc::SIGINT);
-            }
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = child;
-    }
 }
 
 /// Reads `r` to the end keeping at most `max` bytes (the rest is read and discarded, so the

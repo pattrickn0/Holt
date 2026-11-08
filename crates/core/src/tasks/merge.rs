@@ -157,6 +157,8 @@ impl Core {
                     .about_task(&task.id)
                     .in_project(project),
                 );
+                // The task returned to awaiting validation: whoever was queued behind it can now advance.
+                self.advance_queue_locked(project);
                 return Ok(MergeOutcome { task, note: None, resolving: false });
             }
             return Err(refuse(

@@ -14,7 +14,6 @@ pub mod agents;
 pub mod attachments;
 pub mod bridge;
 pub mod capability;
-pub mod chat;
 pub mod config;
 pub mod context;
 pub mod delivery;
@@ -35,6 +34,7 @@ pub mod mail;
 pub mod models;
 pub mod outline;
 pub mod paths;
+pub mod phase;
 pub(crate) mod process;
 pub mod resume;
 pub mod scope;
@@ -58,14 +58,14 @@ use crossbeam_channel::{Receiver, Sender};
 use parking_lot::{Mutex, RwLock};
 
 pub use agents::{AgentInfo, SpawnSpec};
-pub use chat::{idle_label, phase_for_command, Phase};
 pub use config::{Config, CustomAgent, DictationChoice, Organization, ProjectCfg};
 pub use env::{env_var, env_var_os};
 pub use events::{CoreEvent, Delivery, DownloadProgress, DownloadState, FeedEntry, FeedKind, Tone};
 pub use exchange::PendingInfo;
 pub use headless::HeadlessOptions;
 pub use instances::Ident;
-pub use tasks::{MergeBlock, MergeOutcome, MergeRefusal, Task, TaskError, TaskEvent, TaskMessage, TaskSpec, TaskStatus};
+pub use phase::{idle_label, phase_for_command, Phase};
+pub use tasks::{MergeBlock, MergeOutcome, MergeRefusal, MergeStop, Task, TaskError, TaskEvent, TaskMessage, TaskSpec, TaskStatus};
 pub use team::Team;
 pub use usage::{AgentUsage, UsageGroup, UsageWindow};
 pub use workspace::{DirEntry, Eol, TextFile};
@@ -456,11 +456,6 @@ impl Core {
         agents::spawn_spec_for(self, project, ident)
     }
 
-    /// Like [`Core::spawn_spec_for`], for the chat view of a tab (see `chat.rs`).
-    pub fn spawn_spec_chat(&self, project: &str, ident: &Ident) -> Result<SpawnSpec, String> {
-        agents::spawn_spec_chat(self, project, ident)
-    }
-
     // ---------- Instances (tabs) and questions between them ----------
 
     /// The UI starts delivering the `ask-agent` questions by typing in the tabs (instead of running
@@ -525,7 +520,6 @@ impl Core {
             p.tab_efforts.remove(id);
             // Closed for good (the tab's ×, a finished task): reopening it later starts a new conversation.
             p.tab_sessions.remove(id);
-            p.tab_views.remove(id);
         });
         self.mark_team_changed(project, &touched);
     }
@@ -601,7 +595,6 @@ impl Core {
             models::rename(&mut p.tab_models, old_id, &new_id);
             models::rename(&mut p.tab_efforts, old_id, &new_id);
             models::rename(&mut p.tab_sessions, old_id, &new_id);
-            models::rename(&mut p.tab_views, old_id, &new_id);
         });
         let mut changed = self.inner.team_changed.lock();
         if changed.remove(&instances::scoped(project, old_id)) {

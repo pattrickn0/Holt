@@ -9,7 +9,7 @@
 //! - **resume**: the tab has an id whose conversation exists (Claude `--resume <uuid>`; OpenCode `--session <id>`;
 //!   Antigravity `--conversation <id>`; Codex `resume <id>`);
 //! - **fallback**: a resume that ended right away (see [`resume_failed`]): the id is dropped and the tab opens again as a
-//!   first launch, with a notice in the chat. A new id never counts as a resume, so there is no loop.
+//!   first launch, with a notice in the terminal. A new id never counts as a resume, so there is no loop.
 //!
 //! Never `--continue` (or any "most recent session" flag): with several tabs of the same CLI in one folder it would pick
 //! another tab's conversation. A tab always asks for its own id. The CLI reports a new id on its own (Claude after
@@ -35,14 +35,13 @@ pub const FAIL_WINDOW: Duration = Duration::from_secs(10);
 
 /// The CLI has a session id of its own that the app can choose or learn (the others open a new conversation each time).
 pub fn supports(kind: &str) -> bool {
-    matches!(kind, "claude" | "opencode" | "antigravity" | "codex") || crate::chat::is_acp(kind)
+    matches!(kind, "claude" | "opencode" | "antigravity" | "codex")
 }
 
 /// The CLI picks the id of a new conversation itself: the app learns it after the launch (Antigravity's log, Codex's
-/// `notify`) instead of choosing it. A CLI in ACP mode names its sessions in `session/new` (the chat view saves the id from
-/// there); OpenCode's TUI still takes an id the app chooses (`--session`), and an ACP session of it is one of its own sessions.
+/// `notify`) instead of choosing it.
 pub fn learns_id_later(kind: &str) -> bool {
-    matches!(kind, "antigravity" | "codex") || (crate::chat::is_acp(kind) && kind != "opencode")
+    matches!(kind, "antigravity" | "codex")
 }
 
 /// Session id that is safe for the command line, the JSON and the file name: letters, digits, `-` and `_`.

@@ -39,7 +39,9 @@ impl Core {
         let _op = self.inner.tasks.op.lock();
         let title = clean_title(&spec.title)?;
         let brief = cap_text(spec.brief.trim(), MAX_TEXT);
-        let kinds = self.inner.agents.peers();
+        let custom = self.inner.config.read().custom_agents.clone();
+        let kinds = self.inner.agents.peers_with(&custom);
+        let answering_kinds: Vec<String> = kinds.iter().filter(|k| crate::agents::can_answer_with(k, &custom)).cloned().collect();
 
         // Agent: installed, with a tab (no `shell`) and without `@` (the role is the task id). A manual task has no
         // agent: the creator works in the worktree and delivers the report itself (see [`Task::manual`]).
@@ -51,7 +53,8 @@ impl Core {
             ));
         }
         let automatic_choice = !manual && spec.kind.trim().is_empty();
-        let selected = automatic_choice.then(|| capability::select(&self.capability_candidates(&kinds, spec.effort), spec.level)).flatten();
+        let selected =
+            automatic_choice.then(|| capability::select(&self.capability_candidates(&answering_kinds, spec.effort), spec.level)).flatten();
         let (kind, model, effort) = if manual {
             (MANUAL_KIND.to_owned(), None, None)
         } else {
@@ -59,7 +62,8 @@ impl Core {
                 k if k.is_empty() => selected
                     .as_ref()
                     .map(|choice| choice.kind.clone())
-                    .or_else(|| kinds.iter().find(|kind| kind.as_str() == "claude").cloned())
+                    .or_else(|| answering_kinds.iter().find(|kind| kind.as_str() == "claude").cloned())
+                    .or_else(|| answering_kinds.first().cloned())
                     .or_else(|| kinds.first().cloned())
                     .unwrap_or_else(|| "claude".to_owned()),
                 k => k,
@@ -90,6 +94,13 @@ impl Core {
                 if !models::accepts_model(&kind) {
                     return Err(TaskError::Invalid(t!("the agent {kind} does not accept choosing a model", kind = &kind)));
                 }
+            }
+            // A task ends with the agent running `ask-agent --task done`: one that cannot run a command could never deliver it.
+            if !crate::agents::can_answer_with(&kind, &custom) {
+                return Err(TaskError::Invalid(t!(
+                    "the agent {kind} cannot run shell commands, so it could never deliver a task with ask-agent --task done; choose another agent",
+                    kind = &kind
+                )));
             }
             let model = models::resolve_model(&Ident::main(&kind), requested, None, &self.config().role_models);
             // Effort: only where the CLI accepts it. In Antigravity it changes the model suffix, so the saved model

@@ -32,7 +32,7 @@ mod widgets;
 
 use detail::detail_view;
 use form::form_view;
-pub(crate) use form::{dropdown_popup, Detail, MenuItem};
+pub(crate) use form::MenuItem;
 use list::list_view;
 
 const HEAD_H: f32 = theme::TOPBAR_H;
@@ -273,4 +273,43 @@ fn confirm_dialog(deck: &mut Deck, ctx: &egui::Context, panel: Rect, acts: &mut 
             acts.push(Act::ConfirmNo);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use detail::footer_actions;
+    use holt_core::{MergeStop, Task, TaskStatus};
+    use list::row_actions;
+
+    fn sample_task(status: TaskStatus) -> Task {
+        Task { id: "t1".into(), status, started_ms: Some(1000), report: Some("Report".into()), ..Task::default() }
+    }
+
+    #[test]
+    fn stopped_task_actions_include_merge_and_diff() {
+        // Stopped with conflict: row offers "Ask agent to resolve" and diff; footer offers Merge and Return.
+        let mut stopped_conflict = sample_task(TaskStatus::Review);
+        stopped_conflict.merge_stopped = Some(MergeStop { reason: "conflicted".into(), conflict_files: Some(vec!["conflict.rs".into()]) });
+
+        let row_acts = row_actions(&stopped_conflict);
+        assert!(row_acts.iter().any(|(_, act, _, _)| matches!(act, Act::AskAgent(_))));
+        assert!(row_acts.iter().any(|(_, act, _, _)| matches!(act, Act::OpenDiff(_))));
+
+        let foot_acts = footer_actions(&stopped_conflict, true);
+        assert!(foot_acts.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Merge))));
+        assert!(foot_acts.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Return))));
+
+        // Stopped without conflict (e.g. main repo was dirty): row offers Merge and diff; footer offers Merge and Return.
+        let mut stopped_dirty = sample_task(TaskStatus::Review);
+        stopped_dirty.merge_stopped = Some(MergeStop { reason: "main repo dirty".into(), conflict_files: None });
+
+        let row_acts_dirty = row_actions(&stopped_dirty);
+        assert!(row_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Merge))));
+        assert!(row_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::OpenDiff(_))));
+
+        let foot_acts_dirty = footer_actions(&stopped_dirty, true);
+        assert!(foot_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Merge))));
+        assert!(foot_acts_dirty.iter().any(|(_, act, _, _)| matches!(act, Act::Task(_, TaskAct::Return))));
+    }
 }

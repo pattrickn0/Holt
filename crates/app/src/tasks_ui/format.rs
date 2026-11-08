@@ -65,8 +65,8 @@ pub fn last_activity(task: &Task) -> u64 {
 }
 
 /// `t12` → 12 (0 if it is not a task id).
-pub(super) fn task_number(id: &str) -> u64 {
-    id.trim_start_matches('t').parse().unwrap_or(0)
+pub fn task_number(id: &str) -> u64 {
+    id.strip_prefix('t').and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
 /// How many tasks wait for the human's review.

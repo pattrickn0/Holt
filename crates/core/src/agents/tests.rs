@@ -69,12 +69,79 @@ ok"
     assert_eq!(instruction_args("aider", text, Some(file), false), ["--read", "/data/holt-instructions.md"]);
     assert!(instruction_args("aider", text, None, false).is_empty());
     assert_eq!(instruction_args("interpreter", text, Some(file), false), ["--custom_instructions", text]);
-    // Claude and OpenCode are assembled separately; Antigravity reads the AGENTS.md.
-    for kind in ["claude", "opencode", "antigravity", "goose", "shell"] {
+    assert_eq!(instruction_args("qwen", text, Some(file), false), ["--append-system-prompt", text]);
+    assert_eq!(instruction_args("q", text, Some(file), false), ["chat", &format!("{Q_FIRST_MESSAGE}\n\n{text}")]);
+    // Claude and OpenCode are assembled separately; Antigravity and Gemini read their own context folders.
+    for kind in ["claude", "opencode", "antigravity", "gemini", "goose", "shell"] {
         assert!(instruction_args(kind, text, Some(file), false).is_empty(), "{kind}");
     }
-    assert!(["goose", "copilot"].iter().all(|k| reads_only_agents_md(k)));
-    assert!(["claude", "codex", "opencode", "aider", "interpreter", "shell", "antigravity"].iter().all(|k| !reads_only_agents_md(k)));
+    assert!(["goose", "copilot", "ollama", "mimo"].iter().all(|k| reads_only_agents_md(k)));
+    assert!(["claude", "codex", "opencode", "aider", "interpreter", "qwen", "q", "gemini", "shell", "antigravity"]
+        .iter()
+        .all(|k| !reads_only_agents_md(k)));
+}
+
+#[test]
+fn gemini_and_antigravity_write_context_folders_in_data() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let data = tmp.path().join("data");
+    let agy_dir = write_agy_instructions(&data, "antigravity@dev", "rules agy").expect("agy");
+    assert_eq!(agy_dir, data.join("agy").join("antigravity@dev"));
+    assert_eq!(std::fs::read_to_string(agy_dir.join("AGENTS.md")).expect("read"), "rules agy\n");
+
+    let gem_dir = write_gemini_instructions(&data, "gemini@dev", "rules gemini").expect("gemini");
+    assert_eq!(gem_dir, data.join("gemini").join("gemini@dev"));
+    assert_eq!(std::fs::read_to_string(gem_dir.join("GEMINI.md")).expect("read"), "rules gemini\n");
+}
+
+#[test]
+fn agents_that_cannot_answer_are_marked_and_filtered_from_answering_peers() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("mkdir");
+    for name in ["claude", "aider", "ollama", "llama-cli"] {
+        let exe = bin.join(if cfg!(windows) { format!("{name}.exe") } else { name.to_owned() });
+        std::fs::write(&exe, "").expect("exe");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        }
+    }
+    let reg = Registry::new(Discovery { search_path: Some(bin.into_os_string()), home: tmp.path().join("h"), system_dirs: false });
+    assert_eq!(reg.peers(), vec!["claude", "aider", "ollama", "llama-cli"]);
+    assert_eq!(reg.answering_peers(), vec!["claude"]);
+    assert!(can_answer("claude") && can_answer("agy") && can_answer("mimo"));
+    assert!(!can_answer("aider") && !can_answer("ollama") && !can_answer("llama-cli") && !can_answer("shell"));
+
+    let custom = vec![
+        crate::config::CustomAgent {
+            id: "my-agent".into(),
+            label: "My Agent".into(),
+            command: "my-agent --chat".into(),
+            color: "#123456".into(),
+        },
+        crate::config::CustomAgent {
+            id: "local-aider".into(),
+            label: "Local Aider".into(),
+            command: "aider --model sonnet".into(),
+            color: "#654321".into(),
+        },
+        crate::config::CustomAgent {
+            id: "local-ollama".into(),
+            label: "Local Ollama".into(),
+            command: "ollama run qwen2.5:7b".into(),
+            color: "#abcdef".into(),
+        },
+    ];
+    assert!(can_answer_with("my-agent", &custom));
+    assert!(!can_answer_with("local-aider", &custom));
+    assert!(!can_answer_with("local-ollama", &custom));
+    assert_eq!(reg.answering_peers_with(&custom), vec!["claude", "my-agent"]);
+    assert_eq!(
+        cannot_answer_error("aider", &["claude".to_owned(), "codex".to_owned()]),
+        "the agent \"aider\" cannot answer inter-agent questions: it has no shell tool to run `ask-agent --reply`. Ask one that can: claude, codex"
+    );
 }
 
 #[test]

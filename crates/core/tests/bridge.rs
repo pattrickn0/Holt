@@ -1501,6 +1501,28 @@ fn a_model_conflict_on_an_open_instance_is_an_explicit_409() {
 }
 
 #[test]
+fn a_cli_that_cannot_answer_is_refused_before_opening_a_tab() {
+    let env = start(&[]);
+    fake_claude(&env);
+    fake_cli(&env, "codex");
+    fake_cli(&env, "aider");
+    env.core.enable_tab_delivery();
+    let p = env.core.active_project_id();
+
+    // Asking aider via ask_tab is refused with 400.
+    let (st, body) = ask_raw(env.core.bridge_port(), &tab_token(&env, "claude"), json!({"to": "aider", "message": "can you answer?"}));
+    assert_eq!(st, 400);
+    let err = body["error"].as_str().expect("error string");
+    assert!(err.contains("the agent \"aider\" cannot answer"), "{err}");
+    assert!(err.contains("Ask one that can: codex"), "{err}");
+
+    // Refusal happens before opening a tab: no Deliver event was emitted and no instance created.
+    assert!(env.rx.try_iter().all(|e| !matches!(e, CoreEvent::Deliver(_))));
+    assert!(!env.core.project_instance_ids(&p).contains(&"aider".to_string()));
+    env.core.shutdown();
+}
+
+#[test]
 fn a_failed_request_does_not_keep_the_model_of_an_instance_that_never_opened() {
     let env = start(&[]);
     fake_claude(&env);

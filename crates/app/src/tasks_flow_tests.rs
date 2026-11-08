@@ -55,13 +55,7 @@ pub(crate) struct Env {
 }
 
 impl Env {
-    /// The terminal is what these tests exercise: a Claude tab opens in the terminal view.
-    fn start() -> Env {
-        Env::start_with(false)
-    }
-
-    /// `chat`: Claude tabs open in the chat view (the default of the app).
-    pub(crate) fn start_with(chat: bool) -> Env {
+    pub(crate) fn start() -> Env {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path().to_path_buf();
         install_fake_claude(&root);
@@ -86,7 +80,7 @@ impl Env {
             search_path: Some(std::env::join_paths([root.join("fake-bin"), git_dir()]).expect("PATH")),
             home_dir: Some(root.join("home")),
             watch_workspace: false,
-            config: Some(Config { chat_by_default: chat, ..Config::with_project(ws.clone()) }),
+            config: Some(Config::with_project(ws.clone())),
             system_dirs: false,
         };
         let (core, rx) = Core::start_with(paths, opts).expect("start");
@@ -96,33 +90,6 @@ impl Env {
         out.textures_delta.clear();
         let deck = Deck::new(core.clone(), rx, std::sync::Arc::new(|| {}));
         Env { _tmp: tmp, ws, core, deck, ctx }
-    }
-
-    /// Closes Holt and opens it again on the same folders: the tabs it saved come back, as after quitting the app. The
-    /// processes of the old run are killed first (what quitting does).
-    pub(crate) fn restart(&mut self) {
-        self.deck.shutdown();
-        let config = self.core.config();
-        self.core.shutdown();
-        let root = self.ws.parent().expect("root").to_path_buf();
-        let paths = AppPaths {
-            app_dir: root.clone(),
-            bin_dir: root.join("bin"),
-            data_dir: root.join("data"),
-            default_workspace: root.join("ws"),
-            whisper_dir: root.join("whisper"),
-            config_file: root.join("cfg").join("config.json"),
-        };
-        let opts = StartOptions {
-            search_path: Some(std::env::join_paths([root.join("fake-bin"), git_dir()]).expect("PATH")),
-            home_dir: Some(root.join("home")),
-            watch_workspace: false,
-            config: Some(config),
-            system_dirs: false,
-        };
-        let (core, rx) = Core::start_with(paths, opts).expect("start again");
-        self.deck = Deck::new(core.clone(), rx, std::sync::Arc::new(|| {}));
-        self.core = core;
     }
 
     /// Runs frames until `done` becomes true (or 30 s).
@@ -1520,4 +1487,54 @@ fn a_tab_with_an_antigravity_log_saves_the_conversation_the_log_names() {
     tab.session_poll_at = Instant::now();
     let _ = env.deck.background();
     assert_eq!(env.core.tab_session(&project, &instance).as_deref(), Some(conversation));
+}
+
+#[test]
+fn asking_agent_to_resolve_conflict_works_from_merge_stopped_when_notice_block_is_none() {
+    if !git_available() {
+        eprintln!("git is not installed: test skipped");
+        return;
+    }
+    let mut env = Env::start();
+    env.pump("os agentes", |d| d.initialized);
+    let id = env.create_from_form("Resolve conflict from stopped", true);
+    env.pump("the tab", |d| d.tasks.task("t1").is_some_and(|t| d.tasks_tab_open(t)));
+    env.agent_commits(&id, "conflict.txt", "line1\n");
+    env.core.task_done(&env.project(), &id, "Done.").expect("done");
+    env.pump("review", |d| d.tasks.task("t1").is_some_and(|t| t.status == TaskStatus::Review));
+
+    // Simulate an automatic merge stop with conflict files, without a manual merge notice_block
+    assert!(env.deck.tasks.notice_block.is_none());
+    if let Some(t) = env.deck.tasks.tasks.iter_mut().find(|t| t.id == id) {
+        t.merge_stopped =
+            Some(holt_core::MergeStop { reason: "conflicted with base".into(), conflict_files: Some(vec!["conflict.txt".into()]) });
+    }
+
+    // Now clicking "Ask agent to resolve" invokes tasks_ask_agent
+    env.deck.tasks_ask_agent(&id);
+    assert!(env.deck.tasks.busy.is_some(), "must dispatch return task op using merge_stopped conflict files");
+    env.pump("the return", |d| d.tasks.busy.is_none());
+    let back = env.task(&id);
+    assert_eq!(back.status, TaskStatus::Running);
+    assert!(back.events.iter().any(|e| e.text.contains("returned to the agent")), "{:?}", back.events);
+}
+
+#[test]
+fn task_act_retry_dispatches_merge_with_report_and_start_without() {
+    if !git_available() {
+        eprintln!("git is not installed: test skipped");
+        return;
+    }
+    let mut env = Env::start();
+    env.pump("os agentes", |d| d.initialized);
+    let id = env.create_from_form("Retry behavior", false);
+    // Draft task failed to start: report is None.
+    if let Some(t) = env.deck.tasks.tasks.iter_mut().find(|t| t.id == id) {
+        t.status = TaskStatus::Failed;
+        t.error = Some("start failed".into());
+    }
+    // Retry on a failed task without report: directly runs start (no confirm needed).
+    env.deck.tasks_act(&id, TaskAct::Retry);
+    assert!(env.deck.tasks.confirm.is_none());
+    assert!(env.deck.tasks.busy.is_some());
 }

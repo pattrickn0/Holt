@@ -16,6 +16,8 @@ pub struct AgentDef {
     pub label: &'static str,
     pub color: &'static str,
     pub peer: bool,
+    /// Whether the CLI has an autonomous shell tool to run `ask-agent --reply <n> "answer"` in an interactive tab.
+    pub can_answer: bool,
     /// "Not installed" message (with `\r\n`, since it goes straight to the terminal).
     pub missing: &'static str,
 }
@@ -34,14 +36,23 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Claude",
         color: COLOR_CLAUDE,
         peer: true,
+        can_answer: true,
         missing: "Claude Code CLI (claude) not found. Install with:\r\n  npm install -g @anthropic-ai/claude-code",
     },
-    AgentDef { id: "antigravity", label: "Antigravity", color: COLOR_ANTIGRAVITY, peer: true, missing: ANTIGRAVITY_MISSING },
+    AgentDef {
+        id: "antigravity",
+        label: "Antigravity",
+        color: COLOR_ANTIGRAVITY,
+        peer: true,
+        can_answer: true,
+        missing: ANTIGRAVITY_MISSING,
+    },
     AgentDef {
         id: "codex",
         label: "Codex",
         color: COLOR_CODEX,
         peer: true,
+        can_answer: true,
         missing: "Codex CLI not found. Install with:\r\n  npm install -g @openai/codex",
     },
     AgentDef {
@@ -49,13 +60,16 @@ pub const AGENTS: &[AgentDef] = &[
         label: "OpenCode",
         color: "#f97316",
         peer: true,
+        can_answer: true,
         missing: "OpenCode not found. Install with:\r\n  npm install -g opencode-ai",
     },
+    // Aider has no autonomous shell execution tool (`/run` is manual and does not answer prompts), so it cannot call `ask-agent --reply`.
     AgentDef {
         id: "aider",
         label: "Aider",
         color: "#22c55e",
         peer: true,
+        can_answer: false,
         missing: "Aider CLI not found. Install with:\r\n  pip install aider-chat",
     },
     AgentDef {
@@ -63,6 +77,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Goose",
         color: "#10b981",
         peer: true,
+        can_answer: true,
         missing: "Goose CLI not found. Install from: https://github.com/block/goose",
     },
     AgentDef {
@@ -70,6 +85,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Copilot",
         color: "#6e40c9",
         peer: true,
+        can_answer: true,
         missing: "GitHub Copilot CLI not found. Install with:\r\n  npm install -g @github/copilot",
     },
     AgentDef {
@@ -77,6 +93,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Gemini",
         color: COLOR_GEMINI,
         peer: true,
+        can_answer: true,
         missing: "Gemini CLI not found. Install with:\r\n  npm install -g @google/gemini-cli",
     },
     AgentDef {
@@ -84,29 +101,34 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Qwen",
         color: COLOR_QWEN,
         peer: true,
+        can_answer: true,
         missing: "Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code",
     },
-    AgentDef { id: "q", label: "Amazon Q", color: "#ff9900", peer: true, missing: "Amazon Q Developer CLI not found." },
+    AgentDef { id: "q", label: "Amazon Q", color: "#ff9900", peer: true, can_answer: true, missing: "Amazon Q Developer CLI not found." },
     AgentDef {
         id: "interpreter",
         label: "Interpreter",
         color: "#8b5cf6",
         peer: true,
+        can_answer: true,
         missing: "Open Interpreter not found. Install with:\r\n  pip install open-interpreter",
     },
+    // `ollama run` is a raw model REPL without shell tools, so it cannot call `ask-agent --reply`.
     AgentDef {
         id: "ollama",
         label: "Ollama",
         color: "#38bdf8",
         peer: true,
+        can_answer: false,
         missing: "Ollama CLI (ollama) not found. Install from: https://ollama.com",
     },
-    AgentDef { id: "mimo", label: "Mimo Code", color: "#a3e635", peer: true, missing: "Mimo Code CLI (mimo) not found." },
+    AgentDef { id: "mimo", label: "Mimo Code", color: "#a3e635", peer: true, can_answer: true, missing: "Mimo Code CLI (mimo) not found." },
     AgentDef {
         id: "crush",
         label: "Crush",
         color: "#fb7185",
         peer: true,
+        can_answer: true,
         missing: "Crush CLI (crush) not found. Install from: https://github.com/charmbracelet/crush",
     },
     AgentDef {
@@ -114,6 +136,7 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Cline",
         color: "#2dd4bf",
         peer: true,
+        can_answer: true,
         missing: "Cline CLI (cline) not found. Install with:\r\n  npm install -g cline",
     },
     AgentDef {
@@ -121,25 +144,43 @@ pub const AGENTS: &[AgentDef] = &[
         label: "Amp",
         color: "#f59e0b",
         peer: true,
+        can_answer: true,
         missing: "Amp CLI (amp) not found. Install with:\r\n  npm install -g @sourcegraph/amp",
     },
-    AgentDef { id: "droid", label: "Droid", color: "#34d399", peer: true, missing: "Factory Droid CLI (droid) not found." },
+    AgentDef {
+        id: "droid",
+        label: "Droid",
+        color: "#34d399",
+        peer: true,
+        can_answer: true,
+        missing: "Factory Droid CLI (droid) not found.",
+    },
     AgentDef {
         id: "cn",
         label: "Continue",
         color: "#e879f9",
         peer: true,
+        can_answer: true,
         missing: "Continue CLI (cn) not found. Install with:\r\n  npm install -g @continuedev/cli",
     },
-    AgentDef { id: "llama-cli", label: "llama.cpp", color: "#ef4444", peer: true, missing: "llama.cpp CLI (llama-cli) not found." },
+    // `llama-cli` is a raw model REPL without shell tools, so it cannot call `ask-agent --reply`.
+    AgentDef {
+        id: "llama-cli",
+        label: "llama.cpp",
+        color: "#ef4444",
+        peer: true,
+        can_answer: false,
+        missing: "llama.cpp CLI (llama-cli) not found.",
+    },
     AgentDef {
         id: "plandex",
         label: "Plandex",
         color: "#22d3ee",
         peer: true,
+        can_answer: true,
         missing: "Plandex CLI (plandex) not found. Install from: https://plandex.ai",
     },
-    AgentDef { id: "shell", label: "Terminal", color: COLOR_SHELL, peer: false, missing: "Shell not found." },
+    AgentDef { id: "shell", label: "Terminal", color: COLOR_SHELL, peer: false, can_answer: false, missing: "Shell not found." },
 ];
 
 impl AgentDef {

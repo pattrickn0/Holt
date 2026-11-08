@@ -153,7 +153,7 @@ mod tests {
     use super::*;
 
     fn agent(id: &str, label: &str, installed: bool, peer: bool) -> AgentInfo {
-        AgentInfo { id: id.into(), label: label.into(), color: "#d97757".into(), installed, peer, ..Default::default() }
+        AgentInfo { id: id.into(), label: label.into(), color: "#d97757".into(), installed, peer, can_answer: peer, ..Default::default() }
     }
 
     #[test]
@@ -181,6 +181,7 @@ mod tests {
                 custom: true,
                 command: Some("my-cli --chat".into()),
                 local_model: None,
+                ..Default::default()
             },
             agent("shell", "Terminal", true, false),
         ]);
