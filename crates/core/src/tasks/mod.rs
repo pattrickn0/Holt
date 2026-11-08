@@ -81,6 +81,8 @@ const MAX_OUTSIDE: usize = 100;
 const MAX_STAT: usize = 8_000;
 /// Name of the folder, at the repository root, that holds the worktrees.
 pub const HOLT_DIR: &str = ".holt";
+/// The `kind` of a manual task: no agent, no instance (see [`Task::manual`]).
+pub const MANUAL_KIND: &str = "manual";
 /// Attempts (and wait between them) to delete a worktree folder while the agent's terminal still holds it
 /// (on Windows the process takes a moment to die after the tab closes).
 const REMOVE_TRIES: u32 = 10;
@@ -219,8 +221,11 @@ pub struct Task {
     /// Requested effort (`models::Effort`); `None` = the CLI's default. In Claude it goes in `--effort` when the
     /// tab opens; in Antigravity it is already in the suffix of `model`.
     pub effort: Option<models::Effort>,
-    /// Id of the instance (`claude@t3`).
+    /// Id of the instance (`claude@t3`). Empty on a manual task, which has no agent tab.
     pub instance: String,
+    /// A task with no AI agent: the creator (the orchestrator) works in the worktree and delivers the report
+    /// itself. `kind` is `"manual"` and `instance` is empty. Old tasks, without the field, are `false`.
+    pub manual: bool,
     /// Who created it: the id of an agent (`claude`) or `user` ([`crate::instances::USER`]). It is the instance's
     /// boss when it is an open agent.
     #[serde(default, deserialize_with = "legacy_creator")]
@@ -337,6 +342,7 @@ impl Task {
             "model": self.model,
             "effort": self.effort,
             "instance": self.instance,
+            "manual": self.manual,
             "creator": self.creator,
             "created_ms": self.created_ms,
             "started_ms": self.started_ms,
@@ -370,6 +376,9 @@ pub struct TaskSpec {
     pub creator: Option<String>,
     /// The paths the task will touch ([`Task::scope`]); empty = no scope. Normalized in `task_create`.
     pub scope: Vec<String>,
+    /// A task with no agent ([`Task::manual`]): `kind`, `model` and `effort` must be empty; the creator works in the
+    /// worktree and delivers the report itself.
+    pub manual: bool,
 }
 
 /// Why an operation on tasks was not done. `http_status` is the bridge's code.

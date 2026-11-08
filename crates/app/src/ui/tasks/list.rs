@@ -148,7 +148,7 @@ pub(super) fn row_actions(task: &Task) -> Vec<(String, Act, ButtonKind, &'static
         Mark::Validate => {
             vec![(t!("Validate").to_owned(), Act::Task(id(), TaskAct::Validate), ButtonKind::Primary, TaskAct::Validate.tip())]
         }
-        Mark::Stopped if task.merge_stopped.as_ref().is_some_and(|s| s.conflict_files.is_some()) => vec![(
+        Mark::Stopped if !task.manual && task.merge_stopped.as_ref().is_some_and(|s| s.conflict_files.is_some()) => vec![(
             t!("Ask agent to resolve").to_owned(),
             Act::AskAgent(id()),
             ButtonKind::Primary,
@@ -274,39 +274,52 @@ pub(super) fn task_row(deck: &mut Deck, ui: &mut Ui, task: &Task, next_up: bool,
         .x;
     }
     if diff_left - x > 40.0 {
-        paint_agent(deck, &painter, Pos2::new(x + 8.0 + 6.0, line.center().y), &task.kind);
-        x += 8.0 + 12.0 + 5.0;
-        let model = task.model.as_deref().map(crate::ui::projects::model_tag).unwrap_or_else(|| t!("default model").to_owned());
-        let who = match tasks_ui::effort_text(task) {
-            Some(e) => format!("{model} · {e}"),
-            None => model,
-        };
-        let g = galley_trunc(&painter, &who, theme::ui(11.0), p.text_2, (diff_left - x).max(0.0));
-        x = place(
-            &painter,
-            Rect::from_min_max(Pos2::new(x, line.min.y), Pos2::new(diff_left, line.max.y)),
-            Align2::LEFT_CENTER,
-            g,
-            p.text_2,
-        )
-        .max
-        .x;
-        if tasks_ui::Lane::of(task.status) == tasks_ui::Lane::Working {
-            if let Some(status) = deck.task_tab_status(task, std::time::Instant::now()) {
-                ui.ctx().request_repaint_after(std::time::Duration::from_secs(60));
-                let id_w = galley(&painter, &task.id, theme::meta(10.5), p.text_3).size().x + 6.0;
-                let avail = (diff_left - id_w - x - 6.0).max(0.0);
-                if avail >= 24.0 {
-                    let sg = galley_trunc(&painter, &status, theme::meta(10.0), p.text_3, avail);
-                    x = place(
-                        &painter,
-                        Rect::from_min_max(Pos2::new(x + 6.0, line.min.y), Pos2::new(diff_left, line.max.y)),
-                        Align2::LEFT_CENTER,
-                        sg,
-                        p.text_3,
-                    )
-                    .max
-                    .x;
+        if task.manual {
+            let g = galley_trunc(&painter, t!("Manual"), theme::ui_semibold(11.0), p.text_2, (diff_left - x - 6.0).max(0.0));
+            x = place(
+                &painter,
+                Rect::from_min_max(Pos2::new(x + 6.0, line.min.y), Pos2::new(diff_left, line.max.y)),
+                Align2::LEFT_CENTER,
+                g,
+                p.text_2,
+            )
+            .max
+            .x;
+        } else {
+            paint_agent(deck, &painter, Pos2::new(x + 8.0 + 6.0, line.center().y), &task.kind);
+            x += 8.0 + 12.0 + 5.0;
+            let model = task.model.as_deref().map(crate::ui::projects::model_tag).unwrap_or_else(|| t!("default model").to_owned());
+            let who = match tasks_ui::effort_text(task) {
+                Some(e) => format!("{model} · {e}"),
+                None => model,
+            };
+            let g = galley_trunc(&painter, &who, theme::ui(11.0), p.text_2, (diff_left - x).max(0.0));
+            x = place(
+                &painter,
+                Rect::from_min_max(Pos2::new(x, line.min.y), Pos2::new(diff_left, line.max.y)),
+                Align2::LEFT_CENTER,
+                g,
+                p.text_2,
+            )
+            .max
+            .x;
+            if tasks_ui::Lane::of(task.status) == tasks_ui::Lane::Working {
+                if let Some(status) = deck.task_tab_status(task, std::time::Instant::now()) {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_secs(60));
+                    let id_w = galley(&painter, &task.id, theme::meta(10.5), p.text_3).size().x + 6.0;
+                    let avail = (diff_left - id_w - x - 6.0).max(0.0);
+                    if avail >= 24.0 {
+                        let sg = galley_trunc(&painter, &status, theme::meta(10.0), p.text_3, avail);
+                        x = place(
+                            &painter,
+                            Rect::from_min_max(Pos2::new(x + 6.0, line.min.y), Pos2::new(diff_left, line.max.y)),
+                            Align2::LEFT_CENTER,
+                            sg,
+                            p.text_3,
+                        )
+                        .max
+                        .x;
+                    }
                 }
             }
         }
