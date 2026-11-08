@@ -74,14 +74,29 @@ struct Background {
     /// Next deadline returned by `Deck::background`.
     next: Option<Instant>,
     last: Option<Instant>,
+    /// When the work was requested for a frame that has not been drawn yet. Some windows that report
+    /// themselves visible get no frame at all (occluded, on another workspace, minimized on a backend that
+    /// does not report it): after [`FRAME_WATCHDOG`] the work runs here instead of waiting for the user to
+    /// look at the window. Cleared by the frame ([`Background::clear`]) or by the work ([`Background::ran`]).
+    pending: Option<Instant>,
 }
 
 /// Smallest interval between two runs due to `dirty`: a terminal that pours output wakes the app on every chunk.
 const BACKGROUND_GAP: Duration = Duration::from_millis(50);
 
+/// How long the work waits for a requested frame before running without one (see [`Background::pending`]).
+const FRAME_WATCHDOG: Duration = Duration::from_millis(150);
+
 impl Background {
     fn wake(&mut self) {
         self.dirty = true;
+    }
+
+    /// The work was requested while the window looked visible: a frame should do it. If none is drawn, the
+    /// watchdog in `App::about_to_wait` runs it (a window can report itself visible and still get no frames).
+    fn wake_for_frame(&mut self, now: Instant) {
+        self.dirty = true;
+        self.pending.get_or_insert(now);
     }
 
     /// A drawn frame does the same work: the schedule starts over when the window hides again.
@@ -93,6 +108,7 @@ impl Background {
         self.dirty = false;
         self.last = Some(now);
         self.next = next;
+        self.pending = None;
     }
 
     fn due(&self, now: Instant) -> bool {
@@ -103,6 +119,30 @@ impl Background {
     fn deadline(&self, now: Instant) -> Option<Instant> {
         let woken = self.dirty.then(|| self.last.map_or(now, |l| l + BACKGROUND_GAP));
         [woken, self.next].into_iter().flatten().min()
+    }
+
+    /// When the frame requested for this work is given up on (`None`: none was requested, or it was served).
+    fn watchdog(&self) -> Option<Instant> {
+        if self.dirty {
+            self.pending.map(|p| p + FRAME_WATCHDOG)
+        } else {
+            None
+        }
+    }
+
+    fn overdue(&self, now: Instant) -> bool {
+        self.watchdog().is_some_and(|t| now >= t)
+    }
+
+    /// A deadline returned by the work, when it is already due.
+    fn next_due(&self, now: Instant) -> bool {
+        self.next.is_some_and(|t| now >= t)
+    }
+
+    /// When a visible window's work has to run without a frame: the requested frame is late, or the work left a
+    /// deadline behind (a delivery waiting for the tab to become free, a recording ending).
+    fn visible_deadline(&self) -> Option<Instant> {
+        [self.watchdog(), self.next].into_iter().flatten().min()
     }
 }
 
@@ -262,6 +302,7 @@ impl App {
         if self.hidden() {
             self.background.wake();
         } else {
+            self.background.wake_for_frame(Instant::now());
             self.request_redraw();
         }
     }
@@ -542,7 +583,8 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
         if let StartCause::ResumeTimeReached { .. } = cause {
-            self.request_redraw();
+            // A deadline is work, not a painting request: if the window is not drawn, the work still runs.
+            self.request_work();
         }
     }
 
@@ -689,8 +731,13 @@ impl ApplicationHandler<UserEvent> for App {
         let hidden = self.hidden();
         if hidden && self.background.due(now) {
             self.run_background(event_loop);
+        } else if !hidden && (self.background.overdue(now) || self.background.next_due(now)) {
+            // The window says it is visible but no frame came: without this, deliveries and task starts waited
+            // for the user to look at the window (seen with the window occluded/on another workspace).
+            log::debug!("no frame after the work request: running it without drawing");
+            self.run_background(event_loop);
         }
-        let background = self.background.deadline(now).filter(|_| hidden);
+        let background = if hidden { self.background.deadline(now) } else { self.background.visible_deadline() };
         let deadlines = [self.repaint_at, self.size_persist_at, self.smoke.as_ref().filter(|s| !s.armed).map(|s| s.at), background];
         match deadlines.into_iter().flatten().min() {
             Some(t) => event_loop.set_control_flow(ControlFlow::WaitUntil(t)),
@@ -776,6 +823,29 @@ mod tests {
         bg.ran(t0 + ms(100), Some(t0 + ms(400)));
         assert!(!bg.due(t0 + ms(399)) && bg.due(t0 + ms(400)));
         assert_eq!(bg.deadline(t0), Some(t0 + ms(400)));
+
+        // A visible window that never draws: the work runs once the watchdog expires, instead of waiting for
+        // the user to look at it (the frame clears the watchdog as soon as it is drawn).
+        let mut framed = Background::default();
+        framed.wake_for_frame(t0);
+        assert_eq!(framed.watchdog(), Some(t0 + FRAME_WATCHDOG));
+        assert!(!framed.overdue(t0 + ms(149)));
+        assert!(framed.overdue(t0 + ms(150)));
+        framed.clear();
+        assert!(!framed.overdue(t0 + ms(150)) && framed.watchdog().is_none(), "the frame did the work");
+        framed.wake_for_frame(t0);
+        framed.ran(t0, None);
+        assert!(!framed.overdue(t0 + ms(150)), "the work ran without the frame; no second run");
+        assert!(framed.watchdog().is_none());
+        // The deadline the work left behind is scheduled even with a visible window (no frame to carry it).
+        framed.ran(t0, Some(t0 + ms(40)));
+        assert_eq!(framed.visible_deadline(), Some(t0 + ms(40)));
+        assert!(!framed.next_due(t0 + ms(39)) && framed.next_due(t0 + ms(40)));
+        // A hidden window does not use the watchdog: it has `deadline` (the frame will never come).
+        let mut hidden = Background::default();
+        hidden.wake();
+        assert!(!hidden.overdue(t0 + ms(150)));
+        assert!(hidden.watchdog().is_none() && hidden.due(t0 + ms(1)));
 
         // A drawn frame does that work and resets the schedule.
         bg.clear();

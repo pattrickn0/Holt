@@ -276,7 +276,7 @@ fn paint_agent(deck: &mut Deck, painter: &egui::Painter, c: Pos2, kind: &str) {
     }
 }
 
-/// `+120 −8` in green and red (Plex Mono 10.5), right-aligned in `rect`. Returns the left edge.
+/// `+120 −8` in green and red (Inter 10.5), right-aligned in `rect`. Returns the left edge.
 fn paint_diff_counts(painter: &egui::Painter, rect: Rect, plus: u32, minus: u32) -> f32 {
     let p = theme::pal();
     let mut x = rect.max.x;
@@ -1912,7 +1912,7 @@ fn effort_of(index: usize) -> Option<Effort> {
     index.checked_sub(1).and_then(|i| Effort::ALL.get(i).copied())
 }
 
-/// Section/field label of the form (IBM Plex Mono Medium 10 px, UPPERCASE, `text_3`, `0.1em`).
+/// Section/field label of the form (Inter SemiBold 10 px, UPPERCASE, `text_3`, `0.1em`).
 fn field_label(ui: &mut Ui, text: &str) {
     let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 20.0), Sense::hover());
     let color = theme::pal().text_3;

@@ -370,7 +370,7 @@ pub fn separator(painter: &Painter, a: Pos2, b: Pos2) {
     painter.line_segment([a, b], Stroke::new(1.0, theme::pal().separator));
 }
 
-/// Label (branch, counter): `chip` background, 4 px corners, IBM Plex Mono text. `at` is the
+/// Label (branch, counter): `chip` background, 4 px corners, Inter text. `at` is the
 /// left tip, vertically centered on `at.y`; returns the rectangle it occupies.
 pub fn chip(painter: &Painter, at: Pos2, text: &str, size: f32, color: Color32) -> Rect {
     let g = galley(painter, text, theme::meta(size), color);
@@ -383,7 +383,7 @@ pub fn chip(painter: &Painter, at: Pos2, text: &str, size: f32, color: Color32) 
 /// Height of a [`section_label`] row.
 pub const SECTION_LABEL_H: f32 = 22.0;
 
-/// Section label ("PROJECTS"): IBM Plex Mono Medium 10 px, UPPERCASE, `text_3`, with 0.1 em of
+/// Section label ("PROJECTS"): Inter SemiBold 10 px, UPPERCASE, `text_3`, with 0.1 em of
 /// spacing, 22 px of height and 10 px of margin. `rect` is the row (only `min` and the width count);
 /// returns the row's rectangle.
 pub fn section_label(painter: &Painter, rect: Rect, text: &str) -> Rect {

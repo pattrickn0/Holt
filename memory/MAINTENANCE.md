@@ -237,7 +237,7 @@ To invoke the bridge as a tab, obtain its token with `spawn_spec_for(&ident).env
 
 ## 5. Known limitations
 
-The list is in [ideas.md](ideas.md), section "Known limitations"; what has not yet run on Windows is in [manual-tests.md](manual-tests.md).
+The list is in [ideas.md](ideas.md), section "Known limitations".
 
 ## 6. Name history
 

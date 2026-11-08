@@ -29,4 +29,4 @@ user's `AGENTS.md`: a new project lacks one, and an agent lacking instructions l
 **How to apply:** for a new CLI = find its instruction flag (`--help`, documentation) and add to `instruction_args`;
 before falling back to `reads_only_agents_md`, test whether it reads `AGENTS.md` from an added directory (like `agy`): use an easily
 observable rule ("start answer with PINEAPPLE-7") in an `AGENTS.md` outside the project, with and without the option. What quota limits
-prevent testing goes to `memory/manual-tests.md`.
+a defect found in use goes to `memory/backlog.md`.

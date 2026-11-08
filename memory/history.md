@@ -114,6 +114,8 @@ current state in [ARCHITECTURE.md](ARCHITECTURE.md).
 - [x] **Pasting on Windows crashed app** (2026-10-11): clipboard reading restricted to UI thread, eliminating Windows heap corruption.
 - [x] **Initial Windows validation** (2026-10-11): tested by hand tabs, ConPTY, microphone/Whisper, sound, file drag-and-drop, image pasting, and session restore.
 
+- [x] **2026-11-07 fixes from use:** the frame-less work now runs even when the window *says* it is visible but gets no frame (watchdog of 150 ms in `Background`, and deadlines go through `request_work`), so deliveries, task starts and `Activate` no longer wait for the user to look at the window; a finished task whose worktree removal failed is swept when the project opens (`Core::sweep_task_worktrees`); the Linux package writes `holt.desktop` and the icon on first run (`desktop.rs`); the interface is down to two font families (Inter for everything, the system monospace for terminals).
+
 ## 2026-10-15 audit
 
 Comprehensive review of the codebase by four Claude instances and Antigravity, covering atomic

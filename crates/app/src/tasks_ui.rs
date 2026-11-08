@@ -1019,6 +1019,15 @@ impl Deck {
         let generation = self.tasks.generation + 1;
         let history_filter = self.tasks.history_filter;
         self.tasks = TasksUi { generation, history_filter, ..TasksUi::default() };
+        // A task that ended may have left its worktree behind (the removal failed when it finished): the sweep
+        // cleans it now, before the list is read. Cheap when there is nothing to remove.
+        let project = self.active_project.clone();
+        if !project.is_empty() {
+            self.spawn_bg("worktree-sweep", move |core| {
+                core.sweep_task_worktrees(&project);
+                None
+            });
+        }
     }
 
     /// Re-reads the list (one at a time; a request in the middle repeats the read when it finishes).

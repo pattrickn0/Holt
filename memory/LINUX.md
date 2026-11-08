@@ -1,8 +1,7 @@
 # Linux Support (Ubuntu and Fedora)
 
 Verification performed in tasks `t29` (2026-10-22) and `t33` (2026-10-23). This document explains **what was checked, how**,
-what was fixed, the dependencies for each distro, and what remains unverified. The manual Windows test script
-remains in [manual-tests.md](manual-tests.md); the Linux script is at the end here.
+what was fixed, the dependencies for each distro, and what remains unverified. The Linux check script is at the end here.
 
 > **Summary:** the app compiles and passes tests on Ubuntu (CI) and now also on Fedora (container job). The interface
 > was manually validated only on Ubuntu X11; Wayland and a real Fedora desktop have not yet been tested. There is no

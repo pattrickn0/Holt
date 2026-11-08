@@ -773,7 +773,7 @@ fn paint_row(deck: &mut Deck, ui: &Ui, rect: Rect, row: &TreeRow, resp: &egui::R
     } else {
         file_icon(deck, painter, Rect::from_center_size(box_c, Vec2::splat(14.0)), &row.entry.name);
     }
-    // The Git letter on the right (IBM Plex Mono 10 px).
+    // The Git letter on the right (Inter SemiBold 10 px).
     let right = inner.max.x - 8.0;
     let mut name_right = right;
     if let Some(m) = mark {

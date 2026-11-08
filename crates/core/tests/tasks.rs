@@ -337,6 +337,35 @@ fn merge_makes_a_no_ff_commit_and_waits_for_validation() {
 }
 
 #[test]
+fn a_worktree_a_finished_task_left_behind_is_swept_when_the_project_opens() {
+    need_git!();
+    let env = start();
+    let core = &env.core;
+    let t = task_in_review(&env, "Sweep this", "feature.txt");
+    core.task_merge(&env.project, &t.id).expect("merge");
+    core.task_validate(&env.project, &t.id).expect("validate");
+    assert!(!t.worktree.exists());
+
+    // The removal failed when the task ended (a file held open, permissions, the app closing in between): the
+    // folder is back, with the task already completed. Opening the project must clean it.
+    std::fs::create_dir_all(&t.worktree).expect("mkdir");
+    std::fs::write(t.worktree.join("left.txt"), "x").expect("write");
+    let warnings = core.sweep_task_worktrees(&env.project);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(!t.worktree.exists(), "the folder of a completed task is gone");
+    assert_eq!(worktree_count(&env.ws), 1);
+    // Nothing left to sweep: no git work, no warnings.
+    assert!(core.sweep_task_worktrees(&env.project).is_empty());
+
+    // A task still in use keeps its worktree: the sweep never touches those.
+    let live = task_in_review(&env, "Keep it", "other.txt");
+    assert!(live.worktree.is_dir());
+    assert!(core.sweep_task_worktrees(&env.project).is_empty());
+    assert!(live.worktree.is_dir());
+    core.shutdown();
+}
+
+#[test]
 fn validate_cleans_up_and_completes() {
     need_git!();
     let env = start();

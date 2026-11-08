@@ -281,4 +281,31 @@ impl Core {
         }
         warnings
     }
+
+    /// Removes the worktrees of tasks that are finished (completed or discarded) and still have their folder on
+    /// disk: the removal when the task ended may have failed (a file held open, permissions, the app closing in
+    /// between) and nothing else would ever try again. Called when a project opens, before its tasks are listed.
+    /// Returns the warnings (logged; the tasks themselves do not change).
+    pub fn sweep_task_worktrees(&self, project: &str) -> Vec<String> {
+        let Ok(repo) = self.task_repo(project) else { return Vec::new() };
+        let stale: Vec<Task> = self
+            .tasks(project)
+            .into_iter()
+            .filter(|t| matches!(t.status, TaskStatus::Merged | TaskStatus::Discarded))
+            .filter(|t| safe_worktree(&t.worktree, &repo.root) && util::absolutize(&t.worktree).exists())
+            .collect();
+        if stale.is_empty() {
+            return Vec::new();
+        }
+        let _git = self.inner.git.op.lock();
+        let mut warnings = Vec::new();
+        for task in stale {
+            log::info!("task {}: removing the worktree a finished task left behind ({})", task.id, task.worktree.display());
+            warnings.extend(self.remove_task_worktree(&repo, &task));
+        }
+        for w in &warnings {
+            log::warn!("worktree sweep: {w}");
+        }
+        warnings
+    }
 }

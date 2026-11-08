@@ -8,17 +8,11 @@ A limitation that starts getting in the way during actual use also moves up ther
 
 ### Tasks desk and models
 
-- **Acid test on a project other than Holt** (user, 2026-10-24): a Godot game, after system tray and conversation
-  resumption. So far the app was only used to build itself (Rust, full `memory/`, agents familiar with the repository).
-  Points to observe: memory starting empty (do agents create learnings?), `--outline` without GDScript, reimporting the
-  `.godot/` folder in each new worktree, reviewing `.tscn`/`.tres` and binary assets, running tests with `godot --headless`,
-  and scope queue behavior with files everyone touches (`project.godot`, the main scene).
-
 - **Messages to the agent do not mention validation:** `start_message` does not disclose that, after merging, the task can still
   come back rejected; it only finds out when `reject_message` arrives. Check in actual use if this is needed.
 - **Run project tests upon receiving the report**; **edit a draft task**.
 - **"How to validate" in the brief** (from OpenSpec, 2026-10-24): an optional section with WHEN/THEN scenarios; the report
-  specifies which test covers each, and "awaiting validation" shows them as checkboxes (the format of `manual-tests.md`).
+  specifies which test covers each, and "awaiting validation" shows them as checkboxes.
   Optional: making it mandatory would create unnecessary bureaucracy for small tasks.
 - **Project skills for the 4 official CLIs** (2026-10-24): each CLI searches for skills in a folder (`.claude/skills`,
   Antigravity to be confirmed, `.agents/skills` in Codex, `.opencode/skills`); Holt would provide a single folder for all.
@@ -41,6 +35,10 @@ A limitation that starts getting in the way during actual use also moves up ther
   diff impacts performance.
 
 ### Interface
+
+- **Left sidebar and the right panel's three tabs look like three different designs** (user, 2026-11-07): the left
+  side still feels unfinished and the Git, GitHub and Tasks views do not share the same visual rhythm (spacing,
+  headers, borders). The typography was unified (two families) separately; this is about the components themselves.
 
 - **English in the interface** (was in `backlog.md`; removed on 2026-10-24 to make room for Windows and Linux items).
 - **Themes** (user request, 10/18; set aside on 2026-10-24): replace `theme.rs` constants with a runtime palette selected

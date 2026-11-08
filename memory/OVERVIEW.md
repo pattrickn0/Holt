@@ -13,7 +13,6 @@ with it, and **which rules each document defines**. Technical details are in the
 | [backlog.md](backlog.md) | you want to know the next steps (at most 10, in the order they will be done) |
 | [ideas.md](ideas.md) | you want to see undated ideas and known limitations (what is not among the next steps) |
 | [history.md](history.md) | you want to know what has already been done (the destination of every completed item from backlog.md) |
-| [manual-tests.md](manual-tests.md) | you are testing by hand on Windows with real agents (checklist walkthrough) |
 | [LINUX.md](LINUX.md) | you are compiling, running, or testing on Linux (Ubuntu and Fedora) and want to know what has been verified and what is pending |
 
 ---
@@ -218,10 +217,9 @@ Each document covers a specific topic. Changed the topic? Update the document **
 | `memory/learnings/` | long-term memory: one file per pitfall, decision, or convention that is not obvious from the code | format and when to create in `learnings/README.md`; `touches` must exist (verified by test `every_learning_in_the_repository_is_valid`) |
 | `memory/ARCHITECTURE.md` | stack, crates, bridge protocol, instances, tab delivery, tasks, and memory | **contract**: routes, HTTP codes, environment variables, and bridge limits. Changed the protocol? Update here |
 | `memory/MAINTENANCE.md` | practical guide: Rust, commands, code map, recipes | code map and recipes (e.g., new agent: prompt never raw on command line, hooks if CLI supports them) |
-| `memory/backlog.md` | next steps, numbered, at most 10 ("Now" and "Later") | completed item leaves `backlog.md` and goes to `history.md` with one line describing what was done; a new item only enters if it fits within the 10 (otherwise goes to `ideas.md`); development only (manual tests stay in `manual-tests.md`); file does not keep `[x]` |
+| `memory/backlog.md` | next steps, numbered, at most 10 ("Now" and "Later") | completed item leaves `backlog.md` and goes to `history.md` with one line describing what was done; a new item only enters if it fits within the 10 (otherwise goes to `ideas.md`); development only; file does not keep `[x]` |
 | `memory/ideas.md` | undated ideas by area, and known limitations | idea that enters `backlog.md` leaves here; new limitation enters here; does not keep completed items |
 | `memory/history.md` | what has already been done, newest to oldest (includes the 2026-10-15 audit) | only receives items that left `backlog.md`; one line per item; technical details stay in the commit |
-| `memory/manual-tests.md` | manual test script (Windows, real agents), by area (same areas as `backlog.md`) | check `[x]` what passed; what fails becomes an item in `backlog.md`; new feature testable only by hand gets an item in its area; removed feature removes its items |
 | `memory/LINUX.md` | dependencies, verified items, and manual script for Linux (Ubuntu and Fedora) | update in the same commit that changes a system dependency, font path, data folder, or GPU support; Linux failures become items in `backlog.md` |
 | `README.md` (root) | overview, how to build and run, `ask-agent` examples | stays in the root because GitHub displays it on the repository page |
 | `CONTRIBUTING.md` (root) | how to contribute and **project principles** | run `cargo fmt`, `clippy -D warnings`, and `cargo test` before PR; privacy; UI never hangs; texts in pt-BR. Stays in the root because GitHub displays it when opening PRs |

@@ -14,6 +14,8 @@ mod chat_flow_tests;
 mod crash;
 mod debug_ui;
 mod deck;
+#[cfg(target_os = "linux")]
+mod desktop;
 mod dictation;
 mod docs;
 mod docs_demo;
@@ -55,6 +57,9 @@ fn main() -> anyhow::Result<()> {
         .target(env_logger::Target::Pipe(Box::new(logfile::LogFile::open(&data_dir))))
         .init();
     crash::install(&data_dir);
+    // A package (the release tarball) has no build step: the menu entry is written by the binary itself.
+    #[cfg(target_os = "linux")]
+    desktop::install_if_packaged();
 
     // Second launch: the live instance's window comes back (it may be hidden in the tray) and this one exits
     // silently. If it does not answer (hung), the normal startup continues, which shows the lock error.

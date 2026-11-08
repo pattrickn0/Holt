@@ -87,9 +87,10 @@ Terminal: `TERM_BG` #16181c, `TERM_FG`, `TERM_SELECTION` #2f3542.
 and the glow in the background's corner. Text on it: `on_accent`. Helpers: `accent_soft` (18%, selected row),
 `accent_wash` (10%, focused card), `accent_edge` (50%, card border), `with_alpha`, `with_opacity`, `brighten`, `over`.
 
-Fonts (embedded, OFL, `assets/fonts/`): `theme::ui(px)` Inter, `ui_medium`, `ui_semibold`, `ui_bold`; `theme::label(px)`
-IBM Plex Mono Medium for UPPERCASE section labels (10 px, 0.1 em spacing, `ui::section_label`); `theme::meta(px)` Plex
-Mono Regular for metadata (10–10.5 px). Base text 12 px. The terminal keeps the system font. Symbols (▾ ▸ ✕) fall back
+Fonts: **two families only** — Inter (embedded, OFL, `assets/fonts/`) for everything in the interface, and the
+system monospace for the terminal and code. `theme::ui(px)` Inter Regular, `ui_medium`, `ui_semibold` (UPPERCASE section
+labels, 10 px, 0.1 em spacing, `ui::section_label`), `ui_bold`; `theme::label(px)` is Inter SemiBold and `theme::meta(px)`
+Inter Regular (metadata, badges, 10–10.5 px). Base text 12 px. Do not introduce a third family. Symbols (▾ ▸ ✕) fall back
 to the system font.
 
 ## Islands and background

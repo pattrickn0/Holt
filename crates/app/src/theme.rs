@@ -330,19 +330,14 @@ pub const FAMILY_UI_MEDIUM: &str = "ui-medium";
 pub const FAMILY_UI_SEMIBOLD: &str = "ui-semibold";
 pub const FAMILY_UI_BOLD: &str = "ui-bold";
 pub const FAMILY_MONO_BOLD: &str = "mono-bold";
-/// IBM Plex Mono Medium: UPPERCASE section labels.
-pub const FAMILY_LABEL: &str = "label";
-/// IBM Plex Mono Regular: metadata and badges.
-pub const FAMILY_META: &str = "meta";
 
-/// Inter (UI) and IBM Plex Mono (labels and metadata), both under OFL license (see
-/// `assets/fonts/OFL-*.txt`). Embedded in executable: visual styling is independent of installed fonts.
+/// Inter (UI: text, titles, section labels and metadata), under the OFL license (see
+/// `assets/fonts/OFL-*.txt`). Embedded in the executable: visual styling is independent of installed fonts.
+/// The only other family is the terminal's monospace, taken from the system.
 const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
 const INTER_BOLD: &[u8] = include_bytes!("../assets/fonts/Inter-Bold.ttf");
-const PLEX_MONO_REGULAR: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
-const PLEX_MONO_MEDIUM: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf");
 
 /// UI text (Inter Regular).
 pub fn ui(size: f32) -> FontId {
@@ -358,13 +353,13 @@ pub fn ui_semibold(size: f32) -> FontId {
 pub fn ui_bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FAMILY_UI_BOLD.into()))
 }
-/// UPPERCASE section labels (IBM Plex Mono Medium). Use with [`LABEL_SPACING_EM`].
+/// UPPERCASE section labels (Inter SemiBold). Use with [`LABEL_SPACING_EM`].
 pub fn label(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(FAMILY_LABEL.into()))
+    ui_semibold(size)
 }
-/// Metadata and badges (IBM Plex Mono Regular).
+/// Metadata and badges (Inter Regular).
 pub fn meta(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(FAMILY_META.into()))
+    ui(size)
 }
 /// Terminal font (system font, unchanged).
 pub fn mono(size: f32) -> FontId {
@@ -487,14 +482,9 @@ pub fn install_fonts(ctx: &egui::Context) -> LoadedFonts {
     let mut loaded = LoadedFonts::default();
 
     // Embedded fonts.
-    for (key, bytes) in [
-        ("inter", INTER_REGULAR),
-        ("inter-medium", INTER_MEDIUM),
-        ("inter-semibold", INTER_SEMIBOLD),
-        ("inter-bold", INTER_BOLD),
-        ("plex-mono", PLEX_MONO_REGULAR),
-        ("plex-mono-medium", PLEX_MONO_MEDIUM),
-    ] {
+    for (key, bytes) in
+        [("inter", INTER_REGULAR), ("inter-medium", INTER_MEDIUM), ("inter-semibold", INTER_SEMIBOLD), ("inter-bold", INTER_BOLD)]
+    {
         defs.font_data.insert(key.to_owned(), Arc::new(FontData::from_static(bytes)));
     }
 
@@ -542,8 +532,6 @@ pub fn install_fonts(ctx: &egui::Context) -> LoadedFonts {
     defs.families.insert(FontFamily::Name(FAMILY_UI_MEDIUM.into()), chain(&[Some("inter-medium"), Some("inter")], &default_prop));
     defs.families.insert(FontFamily::Name(FAMILY_UI_SEMIBOLD.into()), chain(&[Some("inter-semibold"), Some("inter")], &default_prop));
     defs.families.insert(FontFamily::Name(FAMILY_UI_BOLD.into()), chain(&[Some("inter-bold"), Some("inter")], &default_prop));
-    defs.families.insert(FontFamily::Name(FAMILY_LABEL.into()), chain(&[Some("plex-mono-medium"), Some("inter")], &default_prop));
-    defs.families.insert(FontFamily::Name(FAMILY_META.into()), chain(&[Some("plex-mono"), Some("inter")], &default_prop));
     defs.families
         .insert(FontFamily::Name(FAMILY_MONO_BOLD.into()), chain(&[mono_b.as_ref().map(|_| "sys-mono-bold"), mono_key], &default_mono));
 
