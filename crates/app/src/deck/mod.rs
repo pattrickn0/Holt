@@ -311,6 +311,17 @@ pub struct TreeState {
     pub changed_only: bool,
 }
 
+/// State of the "Add CLI…" / "Edit CLI" modal.
+#[derive(Clone, Default)]
+pub struct CliModal {
+    /// Custom agent `id` being edited, or `None` when adding a new CLI.
+    pub editing_id: Option<String>,
+    pub label: String,
+    pub command: String,
+    pub error: Option<String>,
+    pub focus_requested: bool,
+}
+
 pub struct Deck {
     pub core: Core,
     events: Receiver<CoreEvent>,
@@ -440,6 +451,8 @@ pub struct Deck {
     pub dictation_confirm_remove: bool,
     /// Tab being renamed by the user (index, edit buffer, optional error).
     pub rename_tab: Option<(usize, String, Option<String>)>,
+    /// "Add CLI…" / "Edit CLI" modal state.
+    pub cli_modal: Option<CliModal>,
     /// Context menu open on a tab (tab index, click position).
     pub tab_context_menu: Option<(usize, egui::Pos2)>,
     pub sound_enabled: bool,
@@ -631,6 +644,7 @@ impl Deck {
             dictation_installed,
             dictation_confirm_remove: false,
             rename_tab: None,
+            cli_modal: None,
             tab_context_menu: None,
             sound_enabled: cfg.sound_enabled,
             auto_open_agent_tabs: cfg.auto_open_agent_tabs,

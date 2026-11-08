@@ -115,6 +115,15 @@ pub fn agent_short_name(label: &str) -> &str {
     }
 }
 
+/// Display name for the sidebar agent row: `agent_short_name` plus `" · <model>"` when the agent runs a local model.
+pub fn agent_row_label(label: &str, kind: &str, custom: bool, model: Option<&str>) -> String {
+    let base = agent_short_name(label);
+    match model.map(str::trim).filter(|m| !m.is_empty() && (holt_core::agents::is_local_cli(kind) || custom)) {
+        Some(m) => format!("{base} · {m}"),
+        None => base.to_owned(),
+    }
+}
+
 /// Compact idle time for the sidebar agent row tail (`"idle 12 min"` → `"12m"`, `"ocioso 12 min"` → `"12min"`).
 pub fn compact_idle(status: &str) -> String {
     if let Some(rest) = status.strip_prefix("idle ") {
@@ -681,8 +690,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                     } else {
                         theme::pal().text
                     };
-                    let short_name = agent_short_name(&ag.label);
-                    let tab_g = galley_trunc(&p, short_name, tab_font, tab_color, avail_w);
+                    let short_name = agent_row_label(&ag.label, &ag.kind, deck.agents.is_custom(&ag.kind), ag.model.as_deref());
+                    let tab_g = galley_trunc(&p, &short_name, tab_font, tab_color, avail_w);
                     let placed_r = place(
                         &p,
                         Rect::from_min_max(Pos2::new(name_x, tab_r.min.y), Pos2::new(right, tab_r.max.y)),
@@ -1168,6 +1177,9 @@ mod tests {
         assert_eq!(agent_short_name("Antigravity · Sidebar"), "Sidebar");
         assert_eq!(agent_short_name("Claude · Dev · Ana"), "Dev · Ana");
         assert_eq!(agent_short_name("Claude · Main · Bia"), "Main · Bia");
+        assert_eq!(agent_row_label("Ollama", "ollama", false, Some("qwen2.5-coder:7b")), "Ollama · qwen2.5-coder:7b");
+        assert_eq!(agent_row_label("Mimo Code", "mimo", false, Some("mimo-v2.6-9b")), "Mimo Code · mimo-v2.6-9b");
+        assert_eq!(agent_row_label("Claude", "claude", false, Some("claude-sonnet-4-6")), "Claude");
     }
 
     #[test]

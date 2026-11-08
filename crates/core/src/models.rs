@@ -612,9 +612,8 @@ impl Core {
     /// run together, so it takes as long as the slowest one (up to `LIST_TIMEOUT`). BLOCKING.
     /// Error = the requested agent is not installed.
     pub fn models_inventory(&self, only: Option<&str>) -> Result<Vec<AgentModels>, String> {
-        let agents = &self.inner.agents;
-        let mut kinds: Vec<String> =
-            crate::agents::AGENTS.iter().filter(|a| a.peer && agents.resolve(a.id).is_some()).map(|a| a.id.to_owned()).collect();
+        let custom = self.inner.config.read().custom_agents.clone();
+        let mut kinds: Vec<String> = self.inner.agents.peers_with(&custom);
         if let Some(only) = only {
             let name = crate::agents::resolve_alias(only);
             if !kinds.iter().any(|k| k == name) {

@@ -59,7 +59,7 @@ pub struct StripKind {
 }
 
 const TAB_FONT: f32 = 11.5;
-const LABEL_MAX: f32 = 140.0;
+const LABEL_MAX: f32 = 210.0;
 /// One tab's pill: 22 px tall, 8 px padding, 3 px between them and a 4 px margin in the strip.
 const PILL_H: f32 = 22.0;
 const PILL_PAD: f32 = 8.0;
@@ -142,6 +142,14 @@ fn scroll_to_show(widths: &[f32], n: usize, scroll: f32, view_w: f32, edge: f32)
     target.clamp(0.0, (total - view_w).max(0.0))
 }
 
+/// Tab pill label: includes `" · <model>"` when the agent is a local or custom CLI with a detected model.
+pub fn tab_pill_label(label: &str, kind: &str, custom: bool, model: Option<&str>) -> String {
+    match model.map(str::trim).filter(|m| !m.is_empty() && (holt_core::agents::is_local_cli(kind) || custom)) {
+        Some(m) => format!("{label} · {m}"),
+        None => label.to_owned(),
+    }
+}
+
 /// Paints the tabs `tabs` (indexes of `deck.tabs`) in `rect`, with horizontal scrolling when they do not
 /// fit. `shown` is the visible tab of the window; `focused`, whether the window has the focus.
 pub fn strip(deck: &mut Deck, ui: &Ui, rect: Rect, tabs: &[usize], shown: usize, focused: bool, scroll_id: Id) -> Option<StripClick> {
@@ -155,9 +163,10 @@ pub fn strip(deck: &mut Deck, ui: &Ui, rect: Rect, tabs: &[usize], shown: usize,
             let tab = &deck.tabs[i];
             let is_active = deck.active == Some(i) || (i == shown && focused);
             let status = tab.status_label(now);
+            let label = tab_pill_label(&tab.label, &tab.kind, deck.agents.is_custom(&tab.kind), tab.model.as_deref());
             Item {
                 uid: tab.uid,
-                label: tab.label.clone(),
+                label,
                 color: tab.color,
                 alive: tab.alive,
                 busy: tab.busy,
@@ -636,5 +645,13 @@ mod tests {
             i18n::with_lang(Lang::PtBr, with_status),
             "Claude · Dev (editando)\nModelo: claude-sonnet-4-6\nDuplo clique ou botão direito para renomear"
         );
+    }
+
+    #[test]
+    fn local_and_custom_cli_tabs_show_their_model_in_the_pill() {
+        assert_eq!(tab_pill_label("Ollama", "ollama", false, Some("qwen2.5-coder:7b")), "Ollama · qwen2.5-coder:7b");
+        assert_eq!(tab_pill_label("Mimo Code", "mimo", false, Some("mimo-v2.6-9b")), "Mimo Code · mimo-v2.6-9b");
+        assert_eq!(tab_pill_label("Mimo Local", "mimo-local", true, Some("mimo-v2.6-9b")), "Mimo Local · mimo-v2.6-9b");
+        assert_eq!(tab_pill_label("Claude", "claude", false, Some("claude-sonnet-4-6")), "Claude");
     }
 }

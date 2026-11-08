@@ -91,4 +91,14 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ),
     ("You can download or remove dictation later, in Settings.", "Você pode baixar ou remover o ditado depois, em Configurações."),
     ("Not now", "Agora não"),
+    // Custom CLI modal and menu actions
+    ("Add CLI…", "Adicionar CLI…"),
+    ("Add CLI", "Adicionar CLI"),
+    ("Edit CLI", "Editar CLI"),
+    ("Edit CLI…", "Editar CLI…"),
+    ("Edit or remove {agent}", "Editar ou remover {agent}"),
+    ("Name", "Nome"),
+    ("Command (program and arguments)", "Comando (programa e argumentos)"),
+    ("e.g. Mimo Local", "ex: Mimo Local"),
+    ("e.g. mimo --chat", "ex: mimo --chat"),
 ];

@@ -131,6 +131,10 @@ impl Deck {
                 self.agents.build(&list);
                 for t in &mut self.tabs {
                     t.color = self.agents.tab_color(&t.kind);
+                    t.label = t.ident.label(&self.agents.name(&t.kind));
+                    if t.model.is_none() {
+                        t.model = self.agents.local_model(&t.kind);
+                    }
                 }
                 if !self.initialized {
                     self.initialized = true;

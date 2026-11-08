@@ -270,7 +270,8 @@ fn workspace_agents_md_and_spawn_specs() {
     assert_eq!(env.core.spawn_spec(&p, "nothing").expect_err("unknown"), "Unknown agent: nothing");
     let missing = env.core.spawn_spec(&p, "antigravity").expect_err("not installed");
     assert!(missing.starts_with("Antigravity CLI (agy) not found."));
-    assert_eq!(env.core.spawn_spec(&p, "ollama").expect_err("the Ollama agent was removed"), "Unknown agent: ollama");
+    let missing_ollama = env.core.spawn_spec(&p, "ollama").expect_err("ollama not installed in fake-bin");
+    assert!(missing_ollama.starts_with("Ollama CLI (ollama) not found."));
     assert_eq!(env.core.spawn_spec("pdeadbeef", "shell").expect_err("no project"), "Unknown project: pdeadbeef");
 
     // Another project (not active): the terminal opens in its folder, which gets the AGENTS.md on the first tab.
@@ -309,7 +310,29 @@ fn workspace_agents_md_and_spawn_specs() {
     let ids: Vec<&str> = list.iter().map(|a| a.id.as_str()).collect();
     assert_eq!(
         ids,
-        ["claude", "antigravity", "codex", "opencode", "aider", "goose", "copilot", "gemini", "qwen", "q", "interpreter", "shell"]
+        [
+            "claude",
+            "antigravity",
+            "codex",
+            "opencode",
+            "aider",
+            "goose",
+            "copilot",
+            "gemini",
+            "qwen",
+            "q",
+            "interpreter",
+            "ollama",
+            "mimo",
+            "crush",
+            "cline",
+            "amp",
+            "droid",
+            "cn",
+            "llama-cli",
+            "plandex",
+            "shell"
+        ]
     );
     let shell = list.last().expect("shell");
     assert!(shell.installed && !shell.peer);

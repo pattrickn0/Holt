@@ -16,15 +16,21 @@ use crate::t;
 use crate::Core;
 
 /// Agent menu item (equivalent to the return of `agents:list`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct AgentInfo {
-    /// `claude`, `antigravity`, `codex`, ..., `shell`.
+    /// `claude`, `antigravity`, `codex`, ..., `shell`, or a custom CLI slug.
     pub id: String,
     pub label: String,
     /// `#rrggbb` color.
     pub color: String,
     pub installed: bool,
     pub peer: bool,
+    /// `true` when the entry was manually added by the user (`Config::custom_agents`).
+    pub custom: bool,
+    /// Full command line (`program + args`) for user-added CLIs.
+    pub command: Option<String>,
+    /// Local model detected from the CLI or its config (`ollama list`, Mimo config, etc.).
+    pub local_model: Option<String>,
 }
 
 /// Full command to open an interactive tab in a pseudo-terminal.
@@ -156,6 +162,51 @@ pub const AGENTS: &[AgentDef] = &[
         peer: true,
         missing: "Open Interpreter not found. Install with:\r\n  pip install open-interpreter",
     },
+    AgentDef {
+        id: "ollama",
+        label: "Ollama",
+        color: "#38bdf8",
+        peer: true,
+        missing: "Ollama CLI (ollama) not found. Install from: https://ollama.com",
+    },
+    AgentDef { id: "mimo", label: "Mimo Code", color: "#a3e635", peer: true, missing: "Mimo Code CLI (mimo) not found." },
+    AgentDef {
+        id: "crush",
+        label: "Crush",
+        color: "#fb7185",
+        peer: true,
+        missing: "Crush CLI (crush) not found. Install from: https://github.com/charmbracelet/crush",
+    },
+    AgentDef {
+        id: "cline",
+        label: "Cline",
+        color: "#2dd4bf",
+        peer: true,
+        missing: "Cline CLI (cline) not found. Install with:\r\n  npm install -g cline",
+    },
+    AgentDef {
+        id: "amp",
+        label: "Amp",
+        color: "#f59e0b",
+        peer: true,
+        missing: "Amp CLI (amp) not found. Install with:\r\n  npm install -g @sourcegraph/amp",
+    },
+    AgentDef { id: "droid", label: "Droid", color: "#34d399", peer: true, missing: "Factory Droid CLI (droid) not found." },
+    AgentDef {
+        id: "cn",
+        label: "Continue",
+        color: "#e879f9",
+        peer: true,
+        missing: "Continue CLI (cn) not found. Install with:\r\n  npm install -g @continuedev/cli",
+    },
+    AgentDef { id: "llama-cli", label: "llama.cpp", color: "#ef4444", peer: true, missing: "llama.cpp CLI (llama-cli) not found." },
+    AgentDef {
+        id: "plandex",
+        label: "Plandex",
+        color: "#22d3ee",
+        peer: true,
+        missing: "Plandex CLI (plandex) not found. Install from: https://plandex.ai",
+    },
     AgentDef { id: "shell", label: "Terminal", color: COLOR_SHELL, peer: false, missing: "Shell not found." },
 ];
 
@@ -175,6 +226,15 @@ impl AgentDef {
             "qwen" => t!("Qwen Code not found. Install with:\r\n  npm install -g @qwen-code/qwen-code"),
             "q" => t!("Amazon Q Developer CLI not found."),
             "interpreter" => t!("Open Interpreter not found. Install with:\r\n  pip install open-interpreter"),
+            "ollama" => t!("Ollama CLI (ollama) not found. Install from: https://ollama.com"),
+            "mimo" => t!("Mimo Code CLI (mimo) not found."),
+            "crush" => t!("Crush CLI (crush) not found. Install from: https://github.com/charmbracelet/crush"),
+            "cline" => t!("Cline CLI (cline) not found. Install with:\r\n  npm install -g cline"),
+            "amp" => t!("Amp CLI (amp) not found. Install with:\r\n  npm install -g @sourcegraph/amp"),
+            "droid" => t!("Factory Droid CLI (droid) not found."),
+            "cn" => t!("Continue CLI (cn) not found. Install with:\r\n  npm install -g @continuedev/cli"),
+            "llama-cli" => t!("llama.cpp CLI (llama-cli) not found."),
+            "plandex" => t!("Plandex CLI (plandex) not found. Install from: https://plandex.ai"),
             _ => t!("Shell not found."),
         }
     }
@@ -202,7 +262,205 @@ pub const ALIASES: &[(&str, &str)] = &[
     ("open-code", "opencode"),
     ("gemini-cli", "gemini"),
     ("qwen-code", "qwen"),
+    ("mimo-code", "mimo"),
+    ("continue", "cn"),
+    ("llamacpp", "llama-cli"),
+    ("llama", "llama-cli"),
+    ("factory", "droid"),
 ];
+
+/// Whether `kind` is a local model CLI whose active model is queried from the CLI/config (`ollama list`, Mimo config…).
+pub fn is_local_cli(kind: &str) -> bool {
+    matches!(kind, "ollama" | "mimo" | "llama-cli")
+}
+
+/// Curated dark-theme palette for user-added CLIs before falling back to golden-angle HSL generation.
+const EXTRA_AGENT_COLORS: &[&str] = &[
+    "#f472b6", "#fbbf24", "#60a5fa", "#c084fc", "#818cf8", "#4ade80", "#fb923c", "#f87171", "#38e8b0", "#facc15", "#a78bfa", "#67e8f9",
+    "#f43f5e", "#84cc16", "#06b6d4", "#d946ef", "#fb7185", "#2dd4bf", "#34d399", "#e879f9", "#22d3ee", "#a3e635", "#38bdf8", "#f59e0b",
+];
+
+/// Generates a `#rrggbb` color for a newly added CLI that never repeats any color in [`AGENTS`] or `used`.
+pub fn next_agent_color(used: &[&str]) -> String {
+    let is_taken =
+        |hex: &str| AGENTS.iter().any(|a| a.color.eq_ignore_ascii_case(hex)) || used.iter().any(|u| u.trim().eq_ignore_ascii_case(hex));
+    for &candidate in EXTRA_AGENT_COLORS {
+        if !is_taken(candidate) {
+            return candidate.to_owned();
+        }
+    }
+    for i in 0..10_000usize {
+        let hue = ((i as f64) * 137.507_764_05) % 360.0;
+        let hex = hsl_to_hex(hue, 0.78, 0.64);
+        if !is_taken(&hex) {
+            return hex;
+        }
+    }
+    "#60a5fa".to_owned()
+}
+
+fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r1, g1, b1) = match h as u32 {
+        0..=59 => (c, x, 0.0),
+        60..=119 => (x, c, 0.0),
+        120..=179 => (0.0, c, x),
+        180..=239 => (0.0, x, c),
+        240..=299 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let to_u8 = |v: f64| ((v + m).clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", to_u8(r1), to_u8(g1), to_u8(b1))
+}
+
+/// Splits a command line (`program + args`) into `(program, args)`, respecting single and double quotes
+/// without mangling Windows backslashes.
+pub fn split_command(command: &str) -> Option<(String, Vec<String>)> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut token_started = false;
+    let mut chars = command.trim().chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                token_started = true;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                token_started = true;
+            }
+            '\\' if in_double && matches!(chars.peek(), Some('"' | '\\')) => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            c if c.is_whitespace() && !in_single && !in_double => {
+                if token_started || !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                    token_started = false;
+                }
+            }
+            _ => {
+                current.push(c);
+                token_started = true;
+            }
+        }
+    }
+    if token_started || !current.is_empty() {
+        tokens.push(current);
+    }
+    let mut iter = tokens.into_iter();
+    let program = iter.next()?.trim().to_owned();
+    if program.is_empty() {
+        return None;
+    }
+    Some((program, iter.collect()))
+}
+
+/// Parses `ollama list` (or `ollama ps`) table output and returns the first model name in the `NAME` column.
+pub fn parse_ollama_list(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let first = trimmed.split_whitespace().next()?;
+        if first.eq_ignore_ascii_case("NAME") || first.starts_with("Error") || first.starts_with("Warning") || first.starts_with("could") {
+            continue;
+        }
+        if first.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) {
+            return Some(first.to_owned());
+        }
+    }
+    None
+}
+
+/// Extracts a model name from a Mimo config file (JSON, TOML, or plain model line) or CLI output.
+pub fn parse_mimo_model(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        for key in ["model", "defaultModel", "default_model", "activeModel", "active_model"] {
+            if let Some(m) = v.get(key).and_then(serde_json::Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+                return Some(m.to_owned());
+            }
+        }
+        return None;
+    }
+    for line in trimmed.lines() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') || l.starts_with("//") {
+            continue;
+        }
+        if let Some((k, v)) = l.split_once('=') {
+            let key = k.trim();
+            if matches!(key, "model" | "default_model" | "defaultModel" | "active_model") {
+                let val = v.trim().trim_matches(['"', '\'']).trim();
+                if !val.is_empty() && !val.contains(' ') {
+                    return Some(val.to_owned());
+                }
+            }
+            continue;
+        }
+        if let Some((k, v)) = l.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("model") {
+                let val = v.trim().trim_matches(['"', '\'']).trim();
+                if !val.is_empty() && !val.contains(' ') {
+                    return Some(val.to_owned());
+                }
+            }
+        }
+    }
+    // Single-line model identifier or `NAME ...` table.
+    if !trimmed.contains('\n') && !trimmed.contains(' ') && trimmed.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) {
+        let lower = trimmed.to_ascii_lowercase();
+        if !lower.starts_with("usage") && !lower.starts_with("error") {
+            return Some(trimmed.to_owned());
+        }
+    }
+    parse_ollama_list(trimmed)
+}
+
+/// Extracts a model name from a custom CLI command string (`ollama run <m>`, `--model <m>`, `-m <m>`).
+pub fn extract_command_model(command: &str) -> Option<String> {
+    let (program, args) = split_command(command)?;
+    let prog_stem = Path::new(&program).file_stem().and_then(|s| s.to_str()).unwrap_or(&program).to_ascii_lowercase();
+    if prog_stem == "ollama" {
+        let mut iter = args.iter();
+        while let Some(a) = iter.next() {
+            if a == "run" {
+                return iter.next().filter(|m| !m.starts_with('-')).cloned();
+            }
+        }
+    }
+    let mut iter = args.iter();
+    while let Some(a) = iter.next() {
+        if let Some(val) = a.strip_prefix("--model=") {
+            if !val.trim().is_empty() {
+                return Some(val.trim().to_owned());
+            }
+        }
+        if a == "--model" || a == "-m" {
+            if let Some(val) = iter.next().map(|s| s.trim()).filter(|s| !s.is_empty() && !s.starts_with('-')) {
+                // For `-m /path/to/model.gguf`, keep the filename stem so it reads cleanly in the menu/tab.
+                if val.contains('/') || val.contains('\\') || val.ends_with(".gguf") {
+                    if let Some(stem) = Path::new(val).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()) {
+                        return Some(stem.to_owned());
+                    }
+                }
+                return Some(val.to_owned());
+            }
+        }
+    }
+    None
+}
 
 pub fn agent_def(id: &str) -> Option<&'static AgentDef> {
     AGENTS.iter().find(|a| a.id == id)
@@ -319,16 +577,18 @@ pub(crate) struct Discovery {
 }
 
 const COPILOT_CACHE_TTL: Duration = Duration::from_secs(30);
+const LOCAL_MODEL_CACHE_TTL: Duration = Duration::from_secs(30);
 
-/// Registry state: Copilot detection cache.
+/// Registry state: Copilot and local-model detection caches.
 pub(crate) struct Registry {
     disc: Discovery,
     copilot: Mutex<Option<(Instant, Option<Resolved>)>>,
+    local_models: Mutex<BTreeMap<String, (Instant, Option<String>)>>,
 }
 
 impl Registry {
     pub fn new(disc: Discovery) -> Self {
-        Self { disc, copilot: Mutex::new(None) }
+        Self { disc, copilot: Mutex::new(None), local_models: Mutex::new(BTreeMap::new()) }
     }
 
     pub(crate) fn which(&self, name: &str) -> Option<PathBuf> {
@@ -363,6 +623,34 @@ impl Registry {
             _ if agent_def(id).is_some() => self.resolve_cli(id),
             _ => None,
         }
+    }
+
+    /// Resolves a user-entered command (`program + args`) to a [`Resolved`], falling back to the literal
+    /// program token if it is not found in `PATH` (so a custom CLI always produces a valid [`SpawnSpec`]).
+    pub(crate) fn resolve_command_or_fallback(&self, command: &str) -> Option<Resolved> {
+        let (program, extra) = split_command(command)?;
+        let mut resolved = self.resolve_program(&program).unwrap_or_else(|| Resolved::direct(PathBuf::from(&program)));
+        if resolved.shim.is_some() {
+            resolved.pre.extend(extra.iter().map(|a| cmd_safe_arg(a)));
+        } else {
+            resolved.pre.extend(extra);
+        }
+        Some(resolved)
+    }
+
+    fn resolve_program(&self, program: &str) -> Option<Resolved> {
+        let p = Path::new(program);
+        if p.components().count() > 1 || p.is_absolute() {
+            if p.is_file() {
+                if cfg!(windows) && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd")) {
+                    let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or(program);
+                    return Some(Resolved::via_cmd(p.to_path_buf(), name, &[]));
+                }
+                return Some(Resolved::direct(p.to_path_buf()));
+            }
+            return None;
+        }
+        self.resolve_cli(program)
     }
 
     /// Default resolution: known candidates → `where`/`which` → `.cmd` shim via `cmd.exe`.
@@ -408,6 +696,7 @@ impl Registry {
                     local_bin,
                 ],
                 "q" => vec![which_exe(), Some(env("PROGRAMFILES").join("Amazon").join("Q").join("q.exe")), local_bin],
+                "ollama" => vec![which_exe(), Some(env("LOCALAPPDATA").join("Programs").join("Ollama").join("ollama.exe")), local_bin],
                 _ => vec![which_exe(), local_bin],
             };
             if let Some(p) = first_existing(candidates) {
@@ -476,16 +765,121 @@ impl Registry {
         None
     }
 
+    /// Queries the local model in use for a local CLI (`ollama list`, Mimo config/CLI), cached for 30 s.
+    pub(crate) fn detect_local_model(&self, id: &str, resolved: &Resolved) -> Option<String> {
+        if !is_local_cli(id) {
+            return None;
+        }
+        if let Some((at, cached)) = self.local_models.lock().get(id) {
+            if at.elapsed() < LOCAL_MODEL_CACHE_TTL {
+                return cached.clone();
+            }
+        }
+        let detected = match id {
+            "ollama" => self.query_ollama_model(resolved),
+            "mimo" => self.query_mimo_model(resolved),
+            _ => None,
+        };
+        self.local_models.lock().insert(id.to_owned(), (Instant::now(), detected.clone()));
+        detected
+    }
+
+    /// Detects the local model of a user-added CLI from its command flags or, when the binary is `ollama`/`mimo`, by querying it.
+    pub(crate) fn detect_custom_local_model(&self, command: &str) -> Option<String> {
+        if let Some(m) = extract_command_model(command) {
+            return Some(m);
+        }
+        let (program, _) = split_command(command)?;
+        let stem = Path::new(&program).file_stem().and_then(|s| s.to_str()).unwrap_or(&program).to_ascii_lowercase();
+        if matches!(stem.as_str(), "ollama" | "mimo") {
+            if let Some(resolved) = self.resolve_program(&program) {
+                return self.detect_local_model(&stem, &resolved);
+            }
+        }
+        None
+    }
+
+    fn query_ollama_model(&self, resolved: &Resolved) -> Option<String> {
+        let (program, pre) = resolved.command();
+        let mut cmd = std::process::Command::new(&program);
+        cmd.args(&pre).arg("list");
+        if let Ok(out) = crate::process::run_captured(cmd, None, Duration::from_secs(2), None, None) {
+            if let Some(m) = parse_ollama_list(&out.stdout) {
+                return Some(m);
+            }
+        }
+        if self.disc.system_dirs {
+            if let Some(m) =
+                std::env::var_os("OLLAMA_MODEL").and_then(|v| v.into_string().ok()).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+            {
+                return Some(m);
+            }
+        }
+        None
+    }
+
+    fn query_mimo_model(&self, resolved: &Resolved) -> Option<String> {
+        let home = self.home();
+        let candidates = [
+            home.join(".mimo").join("config.json"),
+            home.join(".mimo").join("settings.json"),
+            home.join(".mimo").join("config.toml"),
+            home.join(".mimo").join("model"),
+            home.join(".config").join("mimo").join("config.json"),
+            home.join(".config").join("mimo").join("settings.json"),
+            home.join(".config").join("mimo").join("config.toml"),
+            home.join(".mimo.json"),
+        ];
+        for path in candidates {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Some(m) = parse_mimo_model(&text) {
+                    return Some(m);
+                }
+            }
+        }
+        if self.disc.system_dirs {
+            if let Some(m) =
+                std::env::var_os("MIMO_MODEL").and_then(|v| v.into_string().ok()).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+            {
+                return Some(m);
+            }
+        }
+        let (program, pre) = resolved.command();
+        for sub in ["model", "list"] {
+            let mut cmd = std::process::Command::new(&program);
+            cmd.args(&pre).arg(sub);
+            if let Ok(out) = crate::process::run_captured(cmd, None, Duration::from_secs(2), None, None) {
+                if out.exit == crate::process::Exit::Code(Some(0)) {
+                    if let Some(m) = parse_mimo_model(&out.stdout) {
+                        return Some(m);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     // ---------- Peers and instructions ----------
 
     /// Only installed agents enabled as peers join the bridge.
     pub fn peers(&self) -> Vec<String> {
-        AGENTS.iter().filter(|a| a.peer && self.resolve(a.id).is_some()).map(|a| a.id.to_owned()).collect()
+        self.peers_with(&[])
     }
 
-    /// Like [`Registry::bridge_instructions`], for the instance `ident`, with its role.
-    pub fn bridge_instructions_for(&self, ident: &Ident) -> String {
-        let mut text = self.bridge_instructions(Some(&ident.id()));
+    /// Installed catalog peers plus user-added custom CLIs.
+    pub fn peers_with(&self, custom: &[crate::config::CustomAgent]) -> Vec<String> {
+        let mut out: Vec<String> = AGENTS.iter().filter(|a| a.peer && self.resolve(a.id).is_some()).map(|a| a.id.to_owned()).collect();
+        for c in custom {
+            if !c.id.is_empty() && !out.iter().any(|p| p == &c.id) {
+                out.push(c.id.clone());
+            }
+        }
+        out
+    }
+
+    /// Like [`Registry::bridge_instructions`], for the instance `ident`, with its role and custom CLIs.
+    pub fn bridge_instructions_for_with(&self, ident: &Ident, custom: &[crate::config::CustomAgent]) -> String {
+        let mut text = self.bridge_instructions_with(Some(&ident.id()), custom);
         if let Some(role) = &ident.role {
             text.push_str(&format!("\nYour role in this instance: {role}. Act accordingly."));
         }
@@ -496,10 +890,14 @@ impl Registry {
     /// instance name and the list of the other agents; without it (file text, the same for any tab), it tells the
     /// agent to read the name from the environment variable and lists nobody, so the file does not change from machine to machine.
     pub fn bridge_instructions(&self, self_id: Option<&str>) -> String {
+        self.bridge_instructions_with(self_id, &[])
+    }
+
+    pub fn bridge_instructions_with(&self, self_id: Option<&str>, custom: &[crate::config::CustomAgent]) -> String {
         const INTRO: &str = "You are running inside Holt, an environment that connects several AI agents.";
         let (first, listed) = match self_id {
             Some(id) => {
-                let others: Vec<String> = self.peers().into_iter().filter(|p| p != id).collect();
+                let others: Vec<String> = self.peers_with(custom).into_iter().filter(|p| p != id).collect();
                 (format!("{INTRO} Your name here is \"{id}\"."), format!(" (agents: {})", others.join(",")))
             }
             None => {
@@ -522,17 +920,54 @@ impl Registry {
     }
 
     /// List for menus (equivalent to `agents:list`).
+    #[cfg(test)]
     pub fn list(&self) -> Vec<AgentInfo> {
-        AGENTS
-            .iter()
-            .map(|a| AgentInfo {
+        self.list_with(&[])
+    }
+
+    /// Lists all catalog agents, any user-added custom CLIs (before `shell`), and `shell` last.
+    pub fn list_with(&self, custom: &[crate::config::CustomAgent]) -> Vec<AgentInfo> {
+        let mut out = Vec::with_capacity(AGENTS.len() + custom.len());
+        for a in AGENTS.iter().filter(|a| a.id != "shell") {
+            let resolved = self.resolve(a.id);
+            let local_model = resolved.as_ref().and_then(|r| self.detect_local_model(a.id, r));
+            out.push(AgentInfo {
                 id: a.id.into(),
                 label: a.label.into(),
                 color: a.color.into(),
-                installed: self.resolve(a.id).is_some(),
+                installed: resolved.is_some(),
                 peer: a.peer,
-            })
-            .collect()
+                custom: false,
+                command: None,
+                local_model,
+            });
+        }
+        for c in custom {
+            let local_model = self.detect_custom_local_model(&c.command);
+            out.push(AgentInfo {
+                id: c.id.clone(),
+                label: c.label.clone(),
+                color: c.color.clone(),
+                installed: true,
+                peer: true,
+                custom: true,
+                command: Some(c.command.clone()),
+                local_model,
+            });
+        }
+        if let Some(sh) = AGENTS.iter().find(|a| a.id == "shell") {
+            out.push(AgentInfo {
+                id: sh.id.into(),
+                label: sh.label.into(),
+                color: sh.color.into(),
+                installed: self.resolve(sh.id).is_some(),
+                peer: sh.peer,
+                custom: false,
+                command: None,
+                local_model: None,
+            });
+        }
+        out
     }
 }
 
@@ -728,7 +1163,8 @@ fn instruction_args(kind: &str, text: &str, file: Option<&Path>, shim: bool) -> 
 /// folder has none (see [`Core::ensure_agents_file`]). Antigravity left this group: it reads the `AGENTS.md` of a folder
 /// passed in `--add-dir` (see [`write_agy_instructions`]).
 fn reads_only_agents_md(kind: &str) -> bool {
-    matches!(kind, "goose" | "copilot")
+    matches!(kind, "goose" | "copilot" | "ollama" | "mimo" | "crush" | "cline" | "amp" | "droid" | "cn" | "llama-cli" | "plandex")
+        || agent_def(kind).is_none()
 }
 
 /// Writes `data/agy/<instance>/AGENTS.md` with the instance instructions (only if it changed) and returns the folder, for
@@ -778,10 +1214,15 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         None => project_dir.clone(),
     };
     let reg = &core.inner.agents;
-    let def = agent_def(kind).ok_or_else(|| t!("Unknown agent: {kind}", kind))?;
+    let custom_agents = core.inner.config.read().custom_agents.clone();
+    let def = agent_def(kind);
+    let custom = if def.is_none() { custom_agents.iter().find(|c| c.id == kind).cloned() } else { None };
+    if def.is_none() && custom.is_none() {
+        return Err(t!("Unknown agent: {kind}", kind));
+    }
     let data_dir = core.paths().data_dir.to_string_lossy().into_owned();
     // No CLI depends on the user's `AGENTS.md`: each one gets the instructions through the channel it has.
-    let instructions = reg.bridge_instructions_for(ident);
+    let instructions = reg.bridge_instructions_for_with(ident, &custom_agents);
     let generic_file = write_instructions_file(&core.paths().data_dir, &reg.bridge_instructions(None))
         .map_err(|e| log::warn!("could not write the Holt instructions file: {e}"))
         .ok();
@@ -791,8 +1232,24 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
     }
 
     // Requested > saved > role default; it is saved for the interface and for reopening the app.
-    let model = core.assign_model(project, ident, None);
-    let resolved = reg.resolve(kind).ok_or_else(|| def.install_hint().to_owned())?;
+    let mut model = core.assign_model(project, ident, None);
+    let (label, color, resolved) = match (def, &custom) {
+        (Some(d), _) => {
+            let r = reg.resolve(kind).ok_or_else(|| d.install_hint().to_owned())?;
+            if model.is_none() {
+                model = reg.detect_local_model(kind, &r);
+            }
+            (d.label.to_owned(), d.color.to_owned(), r)
+        }
+        (None, Some(c)) => {
+            let r = reg.resolve_command_or_fallback(&c.command).ok_or_else(|| t!("Unknown agent: {kind}", kind))?;
+            if model.is_none() {
+                model = reg.detect_custom_local_model(&c.command);
+            }
+            (c.label.clone(), c.color.clone(), r)
+        }
+        (None, None) => unreachable!(),
+    };
     // `gh copilot` (the old extension) has no ACP mode: only the standalone `copilot` has a chat view.
     if chat && kind == "copilot" && !resolved.command().1.is_empty() {
         return Err(t!("The chat view of Copilot needs the standalone Copilot CLI: npm install -g @github/copilot").to_owned());
@@ -902,6 +1359,11 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
     } else if let Some(backend) = backend {
         // The chat view: the backend says how its CLI takes the model and the effort.
         args.extend(backend.spawn_args(&crate::chat::Launch { model: model.as_deref(), effort }));
+    } else if kind == "ollama" {
+        if let Some(m) = &model {
+            args.push("run".into());
+            args.push(m.clone());
+        }
     } else if let Some(m) = &model {
         args.extend(models::cli_args(kind, m));
     }
@@ -928,8 +1390,8 @@ fn spawn_spec_with(core: &Core, project: &str, ident: &Ident, chat: bool) -> Res
         args: full,
         cwd,
         env,
-        label: def.label.to_owned(),
-        color: def.color.to_owned(),
+        label,
+        color,
         kind: kind.to_owned(),
         double_enter_on_mention: kind == "claude" || kind == "antigravity",
         model,
@@ -1268,5 +1730,85 @@ ok"
         assert_eq!(env["PATH"], "C:\\app;C:\\Windows");
         // Git Bash does not turn "/review" into a path.
         assert_eq!((env["MSYS_NO_PATHCONV"].as_str(), env["MSYS2_ARG_CONV_EXCL"].as_str()), ("1", "*"));
+    }
+
+    #[test]
+    fn catalog_has_twenty_ai_clis_and_unique_colors() {
+        let ai_count = AGENTS.iter().filter(|a| a.id != "shell").count();
+        assert_eq!(ai_count, 20);
+        assert!(agent_def("ollama").is_some_and(|a| a.label == "Ollama" && a.peer));
+        assert!(agent_def("mimo").is_some_and(|a| a.label == "Mimo Code" && a.peer));
+        let mut seen = std::collections::HashSet::new();
+        for a in AGENTS {
+            let lower = a.color.to_ascii_lowercase();
+            assert!(seen.insert(lower.clone()), "duplicate color in AGENTS: {} ({})", a.id, a.color);
+        }
+        // Automatically generated colors for added CLIs never repeat any fixed or already assigned color.
+        let mut custom_used: Vec<String> = Vec::new();
+        for _ in 0..30 {
+            let refs: Vec<&str> = custom_used.iter().map(String::as_str).collect();
+            let c = next_agent_color(&refs);
+            let lower = c.to_ascii_lowercase();
+            assert!(seen.insert(lower), "generated color collided: {c}");
+            custom_used.push(c);
+        }
+    }
+
+    #[test]
+    fn local_models_and_command_splitting_are_parsed() {
+        let ollama_out = "NAME                        ID              SIZE      MODIFIED\nqwen2.5-coder:7b            2b0496514337    4.7 GB    2 hours ago\nllama3.2:latest             a80c4f17acd5    2.0 GB    5 days ago\n";
+        assert_eq!(parse_ollama_list(ollama_out).as_deref(), Some("qwen2.5-coder:7b"));
+        assert_eq!(parse_ollama_list("NAME   ID   SIZE   MODIFIED\n"), None);
+
+        assert_eq!(parse_mimo_model(r#"{"model": "mimo-2.6-9b"}"#).as_deref(), Some("mimo-2.6-9b"));
+        assert_eq!(parse_mimo_model("model = \"mimo-2.6-9b-q4\"\n").as_deref(), Some("mimo-2.6-9b-q4"));
+        assert_eq!(parse_mimo_model("mimo-2.6-9b\n").as_deref(), Some("mimo-2.6-9b"));
+
+        assert_eq!(
+            split_command(r#""C:\Program Files\MyCLI\my-cli.exe" --model qwen3 --prompt "hello world""#),
+            Some((
+                r"C:\Program Files\MyCLI\my-cli.exe".to_owned(),
+                vec!["--model".into(), "qwen3".into(), "--prompt".into(), "hello world".into()]
+            ))
+        );
+        assert_eq!(extract_command_model("ollama run deepseek-r1:8b").as_deref(), Some("deepseek-r1:8b"));
+        assert_eq!(extract_command_model("llama-cli -m /models/qwen2.5-7b-instruct.gguf -cnv").as_deref(), Some("qwen2.5-7b-instruct"));
+        assert_eq!(extract_command_model("my-agent --model=phi4-mini").as_deref(), Some("phi4-mini"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ollama_and_mimo_are_detected_with_their_local_models() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let bin = tmp.path().join("bin");
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&bin).expect("bin");
+        std::fs::create_dir_all(home.join(".mimo")).expect("mimo dir");
+
+        let ollama_bin = bin.join("ollama");
+        std::fs::write(
+            &ollama_bin,
+            "#!/bin/sh\nif [ \"$1\" = \"list\" ]; then\n  printf 'NAME ID SIZE MODIFIED\\nqwen2.5-coder:7b abc 4.7GB now\\n'\nfi\n",
+        )
+        .expect("write ollama");
+        std::fs::set_permissions(&ollama_bin, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let mimo_bin = bin.join("mimo");
+        std::fs::write(&mimo_bin, "#!/bin/sh\nexit 0\n").expect("write mimo");
+        std::fs::set_permissions(&mimo_bin, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        std::fs::write(home.join(".mimo").join("config.json"), r#"{"model":"mimo-2.6-9b"}"#).expect("mimo config");
+
+        let reg = Registry::new(Discovery { search_path: Some(bin.into_os_string()), home, system_dirs: false });
+        let list = reg.list();
+        let ollama = list.iter().find(|a| a.id == "ollama").expect("ollama");
+        assert!(ollama.installed);
+        assert_eq!(ollama.label, "Ollama");
+        assert_eq!(ollama.local_model.as_deref(), Some("qwen2.5-coder:7b"));
+
+        let mimo = list.iter().find(|a| a.id == "mimo").expect("mimo");
+        assert!(mimo.installed);
+        assert_eq!(mimo.label, "Mimo Code");
+        assert_eq!(mimo.local_model.as_deref(), Some("mimo-2.6-9b"));
     }
 }

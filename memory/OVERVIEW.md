@@ -73,7 +73,7 @@ The name is the address used by `ask-agent`. Tabs return with the same name and 
 
 No other `HOLT_*` variable from the app environment is passed to agents. Holt instructions (with the rule
 not to use CLI-internal subagents) arrive through each CLI's dedicated channel, without depending on a user's `AGENTS.md`
-(only Goose and Copilot create `AGENTS.md` if the folder does not have one), and folder trust is registered before opening the
+(CLIs without a dedicated flag — such as Goose, Copilot, Ollama, Mimo Code, and user-added CLIs — read the folder's `AGENTS.md`, which the app creates if missing), and folder trust is registered before opening the
 tab. Details in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### The path of an inter-agent question
@@ -157,8 +157,11 @@ of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 **As a user:**
 
-- Open agent tabs (Claude Code, Antigravity, Codex, OpenCode, Aider, Goose, Copilot, Amazon Q, Open Interpreter) and
-  regular terminal tabs, choosing the LLM model per instance.
+- Open agent tabs from the 20-CLI catalog (Claude Code, Antigravity, Codex, OpenCode, Aider, Goose, Copilot, Gemini,
+  Qwen Code, Amazon Q, Open Interpreter, Ollama, Mimo Code, Crush, Cline, Amp, Droid, Continue, llama.cpp, Plandex), add
+  any custom CLI via **Add CLI…** (persisted in `config.json` with an automatic non-repeating color and editable/removable
+  from the menu), and open regular terminal tabs, with local model names (`Ollama · qwen2.5-coder:7b`, `Mimo Code · mimo-v2.6-9b`)
+  shown alongside the agent name.
 - Organize work into **projects** (one folder each), view agents from all projects **in a tree** in the sidebar,
   and reorganize the **team** (lead and crew) by dragging one agent onto another.
 - View multiple agents at the same time in **split screen** or **highlight** (`Tabs | Split | Highlight`).

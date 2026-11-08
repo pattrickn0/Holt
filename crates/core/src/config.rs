@@ -101,6 +101,20 @@ impl Default for RemovedProject {
     }
 }
 
+/// A user-added CLI agent persisted in `config.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CustomAgent {
+    /// Stable identifier used in tabs, `ask-agent <id>`, and config maps (e.g. `my-cli`).
+    pub id: String,
+    /// Display name shown in menus and tabs (e.g. `My CLI`).
+    pub label: String,
+    /// Command line to launch the CLI (program and optional arguments, e.g. `my-cli --chat`).
+    pub command: String,
+    /// Persisted `#rrggbb` color, automatically chosen so it never repeats another agent's color.
+    pub color: String,
+}
+
 /// How many removed projects the config remembers (`removedProjects`).
 const REMOVED_PROJECTS_MAX: usize = 50;
 
@@ -133,6 +147,35 @@ fn new_project_id() -> String {
 /// The folder name (or the whole path, if there is no name: the root of a drive).
 fn folder_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string())
+}
+
+/// Converts a label (or fallback program name) into a valid lowercase agent kind slug (`my-cli`).
+fn custom_agent_slug(label: &str, program: &str) -> String {
+    let to_slug = |s: &str| -> String {
+        let mut out = String::new();
+        let mut prev_dash = false;
+        for ch in s.chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch.to_ascii_lowercase());
+                prev_dash = false;
+            } else if !out.is_empty() && !prev_dash {
+                out.push('-');
+                prev_dash = true;
+            }
+        }
+        out.trim_matches('-').to_owned()
+    };
+    let s = to_slug(label);
+    if !s.is_empty() {
+        return s;
+    }
+    let stem = Path::new(program).file_stem().and_then(|s| s.to_str()).unwrap_or(program);
+    let s = to_slug(stem);
+    if !s.is_empty() {
+        s
+    } else {
+        "cli".to_owned()
+    }
 }
 
 /// How the agent windows are arranged in the center.
@@ -246,6 +289,9 @@ pub struct Config {
     /// The model group the title bar shows, per agent (`antigravity` → `Gemini 4 Argon`). Without an
     /// entry (or with a group the source no longer returns), the summary applies.
     pub usage_pins: BTreeMap<String, String>,
+    /// User-added CLI agents (`Add CLI…`), persisted across restarts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_agents: Vec<CustomAgent>,
     // --- Old format (before the projects): read only for the migration, never saved. Now
     // each project keeps its own tabs and its own layout (see `ProjectCfg`). ---
     /// Known folders (`projects`); the projects now live in `projectList`.
@@ -294,6 +340,7 @@ impl Default for Config {
             language: crate::i18n::Lang::En,
             role_models: BTreeMap::new(),
             usage_pins: BTreeMap::new(),
+            custom_agents: Vec::new(),
             projects: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: -1,
@@ -415,6 +462,86 @@ impl Config {
             self.active_project = self.project_list.first().map(|p| p.id.clone()).unwrap_or_default();
         }
         self.workspace = self.active().map(|p| p.path.clone()).unwrap_or_default();
+        self.fix_custom_agents();
+    }
+
+    /// Normalizes `custom_agents` loaded from `config.json`: drops entries with no command/id and ensures
+    /// every entry has a valid, non-repeating `#rrggbb` color.
+    fn fix_custom_agents(&mut self) {
+        self.custom_agents.retain(|c| !c.id.trim().is_empty() && crate::agents::split_command(&c.command).is_some());
+        let mut assigned: Vec<String> = Vec::with_capacity(self.custom_agents.len());
+        for c in &mut self.custom_agents {
+            c.id = c.id.trim().to_owned();
+            c.command = c.command.trim().to_owned();
+            c.label = c.label.trim().to_owned();
+            if c.label.is_empty() {
+                c.label = c.id.clone();
+            }
+            let valid_hex = c.color.len() == 7 && c.color.starts_with('#') && c.color[1..].chars().all(|ch| ch.is_ascii_hexdigit());
+            let collides = crate::agents::AGENTS.iter().any(|a| a.color.eq_ignore_ascii_case(&c.color))
+                || assigned.iter().any(|u| u.eq_ignore_ascii_case(&c.color));
+            if !valid_hex || collides {
+                let refs: Vec<&str> = assigned.iter().map(String::as_str).collect();
+                c.color = crate::agents::next_agent_color(&refs);
+            }
+            assigned.push(c.color.clone());
+        }
+    }
+
+    /// Finds a user-added CLI agent by id.
+    pub fn custom_agent(&self, id: &str) -> Option<&CustomAgent> {
+        self.custom_agents.iter().find(|c| c.id == id)
+    }
+
+    /// Adds a new custom CLI agent, assigning a stable unique `id` and a non-repeating `#rrggbb` color.
+    pub fn add_custom_agent(&mut self, label: &str, command: &str) -> Result<CustomAgent, String> {
+        let command = command.trim();
+        let (program, _) = crate::agents::split_command(command).ok_or_else(|| crate::t!("Enter the CLI command.").to_owned())?;
+        let label = label.trim();
+        let label = if label.is_empty() {
+            Path::new(&program).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or(&program).to_owned()
+        } else {
+            label.to_owned()
+        };
+        let base_slug = custom_agent_slug(&label, &program);
+        let is_taken = |candidate: &str, existing: &[CustomAgent]| {
+            crate::agents::agent_def(candidate).is_some()
+                || crate::agents::ALIASES.iter().any(|(a, _)| *a == candidate)
+                || existing.iter().any(|c| c.id == candidate)
+        };
+        let mut id = base_slug.clone();
+        let mut n = 2usize;
+        while is_taken(&id, &self.custom_agents) {
+            id = format!("{base_slug}-{n}");
+            n += 1;
+        }
+        let used: Vec<&str> = self.custom_agents.iter().map(|c| c.color.as_str()).collect();
+        let color = crate::agents::next_agent_color(&used);
+        let entry = CustomAgent { id, label, command: command.to_owned(), color };
+        self.custom_agents.push(entry.clone());
+        Ok(entry)
+    }
+
+    /// Updates the display name and command of an existing custom CLI agent, preserving its `id` and `color`.
+    pub fn update_custom_agent(&mut self, id: &str, label: &str, command: &str) -> Result<CustomAgent, String> {
+        let command = command.trim();
+        let (program, _) = crate::agents::split_command(command).ok_or_else(|| crate::t!("Enter the CLI command.").to_owned())?;
+        let entry = self.custom_agents.iter_mut().find(|c| c.id == id).ok_or_else(|| crate::t!("Unknown agent: {kind}", kind = id))?;
+        let label = label.trim();
+        entry.label = if label.is_empty() {
+            Path::new(&program).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or(&program).to_owned()
+        } else {
+            label.to_owned()
+        };
+        entry.command = command.to_owned();
+        Ok(entry.clone())
+    }
+
+    /// Removes a user-added custom CLI agent by `id`. Returns `true` when removed.
+    pub fn remove_custom_agent(&mut self, id: &str) -> bool {
+        let before = self.custom_agents.len();
+        self.custom_agents.retain(|c| c.id != id);
+        self.custom_agents.len() < before
     }
 
     /// Old format (`projects` + `workspace` + global tabs and layout) → one project per folder.
@@ -1024,5 +1151,43 @@ mod tests {
         assert!(back.files_changed_only);
         assert!(!back.project_list[0].collapsed);
         assert!(back.project_list[1].collapsed);
+    }
+
+    #[test]
+    fn custom_agents_persist_edit_remove_and_keep_unique_colors() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let p = paths(tmp.path());
+        let mut cfg = Config::default_for(&p);
+
+        let a1 = cfg.add_custom_agent("My Custom CLI", "my-cli --chat --model local-7b").expect("add 1");
+        assert_eq!(a1.id, "my-custom-cli");
+        assert_eq!(a1.label, "My Custom CLI");
+        assert_eq!(a1.command, "my-cli --chat --model local-7b");
+        assert!(a1.color.starts_with('#') && a1.color.len() == 7);
+        assert!(!crate::agents::AGENTS.iter().any(|a| a.color.eq_ignore_ascii_case(&a1.color)));
+
+        // Adding another CLI with a colliding name gets a distinct id and a distinct color.
+        let a2 = cfg.add_custom_agent("My Custom CLI", "other-cli --fast").expect("add 2");
+        assert_eq!(a2.id, "my-custom-cli-2");
+        assert_ne!(a1.color.to_ascii_lowercase(), a2.color.to_ascii_lowercase());
+
+        // Editing preserves id and color while updating label and command.
+        let updated = cfg.update_custom_agent(&a1.id, "Renamed CLI", "my-cli --new-flag").expect("update");
+        assert_eq!(updated.id, a1.id);
+        assert_eq!(updated.color, a1.color);
+        assert_eq!(updated.label, "Renamed CLI");
+        assert_eq!(updated.command, "my-cli --new-flag");
+
+        // Round-trip through disk preserves custom agents and their colors.
+        cfg.save(&p.config_file).expect("save");
+        let reloaded = Config::load_from(std::slice::from_ref(&p.config_file), &p, no_home());
+        assert_eq!(reloaded.custom_agents.len(), 2);
+        assert_eq!(reloaded.custom_agents[0], updated);
+        assert_eq!(reloaded.custom_agents[1], a2);
+
+        // Removing deletes only the requested entry.
+        let mut reloaded = reloaded;
+        assert!(reloaded.remove_custom_agent(&a1.id));
+        assert_eq!(reloaded.custom_agents, vec![a2]);
     }
 }

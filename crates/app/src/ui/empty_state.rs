@@ -13,6 +13,8 @@ use holt_core::t;
 const NEW_PROJECT: &str = "#new-project";
 /// "Open folder…" of the card shown when the active project has no folder: it picks one for that project.
 const PICK_FOLDER: &str = "#pick-folder";
+/// "Add CLI…" button of the empty state card.
+const ADD_CLI: &str = "#add-cli";
 
 /// Marker the empty-state sentence uses to point at the bold piece (a character the text never has).
 const MARKER: &str = "\u{1}";
@@ -60,13 +62,16 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
         let kind = if folderless.is_some() { PICK_FOLDER } else { NEW_PROJECT };
         vec![crate::agents::MenuItem { kind: kind.into(), label: t!("Open folder…").into(), color: theme::pal().text_2 }]
     } else {
-        deck.agents.empty_actions.clone()
+        let mut list = deck.agents.empty_actions.clone();
+        list.push(crate::agents::MenuItem { kind: ADD_CLI.into(), label: t!("Add CLI…").into(), color: theme::pal().text_2 });
+        list
     };
     let font = theme::ui(12.0);
     let btn_h = 12.0 * theme::LINE_HEIGHT + 14.0 + 2.0;
     // Icon on the left: the model logo or, without one, the agent's dot; "Open folder…" has the 12 px folder glyph.
     let is_folder = |m: &crate::agents::MenuItem| m.kind == NEW_PROJECT || m.kind == PICK_FOLDER;
-    let lead = |m: &crate::agents::MenuItem| if is_folder(m) { 12.0 } else { 8.0 + 8.0 };
+    let is_add = |m: &crate::agents::MenuItem| m.kind == ADD_CLI;
+    let lead = |m: &crate::agents::MenuItem| if is_folder(m) || is_add(m) { 12.0 } else { 8.0 + 8.0 };
     let widths: Vec<f32> = items
         .iter()
         .map(|m| 14.0 + lead(m) + 6.0 + galley(&painter, &m.label, font.clone(), theme::pal().text).size().x + 14.0 + 2.0)
@@ -117,6 +122,15 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
             let resp = button(ui, r, Id::new(("empty-btn", &m.kind)), "", ButtonKind::Secondary);
             if is_folder(m) {
                 super::paint_folder_icon(&painter, Pos2::new(r.min.x + 15.0 + 6.0, r.center().y), theme::pal().text_2);
+            } else if is_add(m) {
+                super::text_in(
+                    &painter,
+                    Rect::from_center_size(Pos2::new(r.min.x + 15.0 + 6.0, r.center().y), Vec2::splat(12.0)),
+                    Align2::CENTER_CENTER,
+                    "+",
+                    theme::ui_semibold(13.0),
+                    theme::pal().text_2,
+                );
             } else {
                 super::projects::paint_kind_mark(
                     &mut deck.icons,
@@ -143,6 +157,7 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, rect: Rect) {
     match open.as_deref() {
         Some(NEW_PROJECT) => deck.new_project_dialog(),
         Some(PICK_FOLDER) => deck.pick_workspace(),
+        Some(ADD_CLI) => deck.open_add_cli_modal(),
         Some(kind) => deck.open_tab(kind, false),
         None => {}
     }

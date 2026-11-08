@@ -125,6 +125,7 @@ pub(crate) fn apply(deck: &mut Deck) {
             "dictation-ask" => deck.dictation_prompt = true,
             "shortcuts" => deck.toggle_shortcuts = true,
             "newtab" => deck.new_tab_menu_open = true,
+            "add-cli" => deck.open_add_cli_modal(),
             // Second step of the new-agent menu (choose the model): `newtab-models:claude`, `newtab-models:opencode`…
             // and, on OpenCode, `newtab-models:opencode@opencode` opens the provider's models directly.
             k if k.starts_with("newtab-models:") => {

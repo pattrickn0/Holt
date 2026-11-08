@@ -131,12 +131,20 @@ impl Core {
         cancel: &AtomicBool,
     ) -> anyhow::Result<String> {
         let base = resolve_alias(agent);
-        let def = agent_def(base).ok_or_else(|| anyhow::anyhow!("Unknown agent: {agent}"))?;
         let reg = &self.inner.agents;
+        let custom = self.custom_agent(base);
+        let def = agent_def(base);
+        if def.is_none() && custom.is_none() {
+            anyhow::bail!("Unknown agent: {agent}");
+        }
         let workspace = if opts.cwd.as_os_str().is_empty() { self.workspace() } else { opts.cwd.clone() };
         let project = opts.project.clone();
 
-        let resolved = reg.resolve(base).ok_or_else(|| anyhow::anyhow!("{}", def.missing))?;
+        let resolved = match (def, &custom) {
+            (Some(d), _) => reg.resolve(base).ok_or_else(|| anyhow::anyhow!("{}", d.missing))?,
+            (None, Some(c)) => reg.resolve_command_or_fallback(&c.command).ok_or_else(|| anyhow::anyhow!("Unknown agent: {agent}"))?,
+            (None, None) => unreachable!(),
+        };
         let data_dir = self.paths().data_dir.to_string_lossy().into_owned();
 
         // Extension point (future RAG): no provider registered today.
