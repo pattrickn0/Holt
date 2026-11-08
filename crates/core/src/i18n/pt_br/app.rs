@@ -5,7 +5,6 @@
 
 pub const ENTRIES: &[(&str, &str)] = &[
     // Agent tabs and the agent menu
-    ("{agent} (not installed)", "{agent} (não instalado)"),
     ("Open {agent}", "Abrir {agent}"),
     // Startup
     ("Holt could not start: {error}", "Não foi possível iniciar o Holt: {error}"),

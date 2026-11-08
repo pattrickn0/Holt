@@ -69,10 +69,8 @@ impl Agents {
         let shell_core = agents.iter().find(|a| a.id == "shell");
         self.names.insert("shell".into(), shell_label(shell_core.map(|a| a.label.as_str())));
 
-        self.available =
-            agents.iter().filter(|a| a.installed || a.id == "shell" || a.id == "claude" || a.id == "antigravity").cloned().collect();
-        let ai: Vec<&AgentInfo> =
-            self.available.iter().filter(|a| a.id != "shell" && (a.installed || a.id == "claude" || a.id == "antigravity")).collect();
+        self.available = agents.iter().filter(|a| a.installed || a.id == "shell").cloned().collect();
+        let ai: Vec<&AgentInfo> = self.available.iter().filter(|a| a.id != "shell" && a.installed).collect();
         let shell_color = shell_core.map(color_of).unwrap_or(theme::SHELL);
         let shell_name = shell_label(shell_core.map(|a| a.label.as_str()));
 
@@ -83,11 +81,7 @@ impl Agents {
 
         self.new_tab_menu = ai
             .iter()
-            .map(|a| MenuItem {
-                kind: a.id.clone(),
-                label: if a.installed { display_label(a) } else { t!("{agent} (not installed)", agent = a.label) },
-                color: color_of(a),
-            })
+            .map(|a| MenuItem { kind: a.id.clone(), label: display_label(a), color: color_of(a) })
             .chain(std::iter::once(MenuItem { kind: "shell".into(), label: shell_name.clone(), color: shell_color }))
             .collect();
         self.empty_actions = ai
@@ -191,17 +185,17 @@ mod tests {
             agent("shell", "Terminal", true, false),
         ]);
         let kinds: Vec<&str> = a.new_tab_menu.iter().map(|m| m.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["claude", "opencode", "ollama", "my-cli", "shell"]);
-        assert_eq!(a.new_tab_menu[0].label, "Claude (not installed)");
-        assert_eq!(a.new_tab_menu[2].label, "Ollama · qwen2.5-coder:7b");
-        assert_eq!(a.empty_actions[0].label, "Open Claude");
-        assert_eq!(a.empty_actions[2].label, "Open Ollama · qwen2.5-coder:7b");
+        assert_eq!(kinds, vec!["opencode", "ollama", "my-cli", "shell"]);
+        assert_eq!(a.new_tab_menu[0].label, "OpenCode");
+        assert_eq!(a.new_tab_menu[1].label, "Ollama · qwen2.5-coder:7b");
+        assert_eq!(a.empty_actions[0].label, "Open OpenCode");
+        assert_eq!(a.empty_actions[1].label, "Open Ollama · qwen2.5-coder:7b");
         assert!(a.knows("opencode") && a.knows("ollama") && a.knows("my-cli"));
         assert!(a.is_custom("my-cli") && !a.is_custom("ollama"));
         assert_eq!(a.local_model("ollama").as_deref(), Some("qwen2.5-coder:7b"));
         assert_eq!(a.name("opencode"), "OpenCode");
         assert_eq!(a.name("my-cli"), "My CLI");
         assert_eq!(a.name("unknown"), "unknown");
-        assert_eq!(a.fallback_kind(), "claude");
+        assert_eq!(a.fallback_kind(), "opencode");
     }
 }
