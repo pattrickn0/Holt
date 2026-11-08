@@ -123,7 +123,7 @@ To change visuals, edit `theme.rs` (colors and sizes) or the corresponding area 
 
 ## 3. Common recipes
 
-**Adding a new CLI agent.** Edit `crates/core/src/agents.rs`:
+**Adding a new CLI agent.** Edit `crates/core/src/agents/defs.rs` (the catalog and hints):
 1. Create an entry in `AGENTS` table with id, label, color, resolution function, and "not installed" message.
 2. If it has a non-interactive mode, add arguments in `headless.rs` (in per-agent `match`). The prompt
    **never** goes raw on the command line: use stdin or `self.prompt_arg(prompt, via_cmd)`, which passes
@@ -149,8 +149,9 @@ visible tab; microphone state and fixed transcription target are pure and tested
 `input::paste_bytes` without Enter) and drop zone (`resolve_drop_zone`, `attach_dropped_files`) live in `deck/attachments.rs`, and
 drag highlighting lives in `ui/overlay.rs`. The "New task" form attaches files through the same mechanism (`util::append_brief_attachments` appends paths to the brief).
 
-**Working on the Git tab.** Operations live in `crates/core/src/git.rs` (`impl Core`, with safe environment in
-`base_command`); state and reloads in `crates/app/src/git_ui.rs`; rendering in `crates/app/src/ui/git.rs`
+**Working on the Git tab.** Operations live in `crates/core/src/git/` (one file per area: `status.rs`, `remote.rs`,
+`branches.rs`, `stash.rs`, `history.rs`, `merge.rs`; types and parsers in `parse.rs`, the process layer in `exec.rs`,
+`base_command` included); state and reloads in `crates/app/src/git_ui.rs`; rendering in `crates/app/src/ui/git.rs`
 (drawing only collects actions and applies them at the end). New git command: always `args([...])` with `--` before
 paths, never a shell; test output parsing with sample bytes and the flow in `tests/git.rs`. To view
 without a repository: `HOLT_DEBUG_UI=git-demo` (or `git-diff`, `git-branches`, `git-norepo`, `git-nogit`).
@@ -178,8 +179,9 @@ tests). Pure text (slug, branch, agent messages, `exclude`) has tests in `tasks/
 in `tests/tasks.rs`, `tests/tasks_bridge.rs`, and `tests/tasks_queue.rs` (fixture in `tests/support/tasks_env.rs`; git identity
 comes from test's `GIT_CONFIG_GLOBAL`). Changed what the agent receives at startup? That is `tasks::start_message` (in `tasks/text.rs`).
 
-**Working on the Tasks tab (UI).** State and actions live in `crates/app/src/tasks_ui.rs`; rendering in
-`crates/app/src/ui/tasks.rs` (rendering only *collects* clicks in `Act`; `apply` executes at the end of the frame).
+**Working on the Tasks tab (UI).** State and actions live in `crates/app/src/tasks_ui/` (`state.rs`, `deck.rs`,
+`model.rs`, `format.rs`, `demo.rs`); rendering in `crates/app/src/ui/tasks/` (`list.rs`, `detail.rs`, `form.rs`,
+`widgets.rs`) (rendering only *collects* clicks in `Act`; `apply` executes at the end of the frame).
 Every core task call runs git, so goes to `Deck::spawn_bg` and returns as `UiMsg::Tasks(generation, TaskReply)`
 (generation increments on each project switch and drops replies from previous one); list reloads when opening tab, on every
 `CoreEvent::TasksChanged`, and after each action. `tasks_flow_tests.rs` exercises this flow with real core and git. The badge number on the tab icon is `TasksUi::review_count`. Which buttons each

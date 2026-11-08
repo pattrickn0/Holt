@@ -1,7 +1,7 @@
 ---
 title: Resuming a tab's conversation: the session id is the tab's own, flags checked per CLI
 summary: Claude --session-id/--resume (+ SessionStart hook), OpenCode --session ses_...; never --continue; a conversation with no message yet cannot be resumed (Antigravity and Codex: see resume-antigravity-and-codex.md).
-touches: [crates/core/src/resume.rs, crates/core/src/agents.rs, crates/core/src/bridge.rs, crates/cli/src/bin/ask-agent.rs, crates/app/src/deck/tabs.rs, crates/core/src/config.rs]
+touches: [crates/core/src/resume.rs, crates/core/src/agents/**, crates/core/src/bridge.rs, crates/cli/src/bin/ask-agent.rs, crates/app/src/deck/tabs.rs, crates/core/src/config.rs]
 ---
 Each tab keeps the CLI's session id in `ProjectCfg.tab_sessions` (tab id → id), saved as soon as it is known and dropped
 when the tab is closed for good (`Core::close_instance`: the tab's ×, a finished or discarded task, a removed project).

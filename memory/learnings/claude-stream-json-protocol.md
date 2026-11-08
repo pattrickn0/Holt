@@ -1,7 +1,7 @@
 ---
 title: Claude Code's structured mode (stream-json): what it really emits and expects
 summary: Checked on 2.1.312 — init comes every turn, permissions arrive as control_request on stdout and are answered on stdin, no user echo, thinking text is empty, /commands work, interrupt is a control_request.
-touches: [crates/core/src/chat.rs, crates/core/tests/data/**, crates/core/src/agents.rs]
+touches: [crates/core/src/chat/**, crates/core/tests/data/**, crates/core/src/agents/**]
 ---
 Recorded 2026-10-29 with `claude -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
 --permission-prompt-tool stdio` (samples in `crates/core/tests/data/claude-stream-*.jsonl`):

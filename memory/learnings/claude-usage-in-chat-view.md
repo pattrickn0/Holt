@@ -1,7 +1,7 @@
 ---
 title: Claude's plan usage has two sources, one per view
 summary: The terminal view reports usage through the statusline (ask-agent --usage); the chat view (-p) never runs the statusline and reports it as rate_limit_event in the stream.
-touches: [crates/core/src/usage.rs, crates/core/src/chat.rs, crates/app/src/deck/chat.rs]
+touches: [crates/core/src/usage.rs, crates/core/src/chat/**, crates/app/src/deck/chat.rs]
 ---
 Claude Code runs its `statusLine` command only in the interactive TUI. A chat-view tab runs `claude -p` with stream-json,
 so `ask-agent --usage` never fires there and the usage bar froze once the tabs defaulted to Chat. The stream sends

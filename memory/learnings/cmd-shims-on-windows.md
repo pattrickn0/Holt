@@ -1,7 +1,7 @@
 ---
 title: .cmd shims on Windows: two passes in PTY and file-based prompts in headless
 summary: In tabs, cmd_safe_arg escapes for cmd.exe /c and for the shim's %*; in headless, the .cmd is invoked directly and the prompt is passed via a file.
-touches: [crates/core/src/agents.rs, crates/core/src/headless.rs]
+touches: [crates/core/src/agents/**, crates/core/src/headless.rs]
 ---
 A CLI installed via npm or pip on Windows is a `.cmd` shim. `cmd.exe` interprets `& | < > ^ % "` and line breaks,
 and in an interactive tab (`portable-pty`) the text passes through **two** interpreter passes: the command line of

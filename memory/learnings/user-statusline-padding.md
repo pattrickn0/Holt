@@ -1,7 +1,7 @@
 ---
 title: App statusline requires user statusline padding
 summary: Claude Code applies statusLine padding; our --usage only forwards output, so write_claude_hooks copies the user's padding.
-touches: [crates/core/src/agents.rs, crates/cli/src/bin/ask-agent.rs]
+touches: [crates/core/src/agents/**, crates/cli/src/bin/ask-agent.rs]
 ---
 The app writes `data/hooks/claude-settings.json` (passed via `--settings`) with its own statusline
 (`ask-agent --usage`), replacing the user's statusline. `--usage` runs the user's command and prints its

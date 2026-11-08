@@ -1,7 +1,7 @@
 ---
 title: Changing the model or the effort of a chat tab restarts its process on the same session
 summary: The composer pickers save to ProjectCfg (tab_models / tab_efforts), drop the ChatProcess and start_chat resumes the tab's session; Antigravity's effort lives in the model name.
-touches: [crates/core/src/models.rs, crates/core/src/agents.rs, crates/app/src/deck/chat.rs, crates/app/src/ui/chat.rs]
+touches: [crates/core/src/models.rs, crates/core/src/agents/**, crates/app/src/deck/chat.rs, crates/app/src/ui/chat.rs]
 ---
 
 The CLIs take `--model` / the effort only at launch, so a pick in the chat composer (`Deck::chat_set_model`, `chat_set_effort`)

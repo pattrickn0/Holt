@@ -157,7 +157,7 @@ to the system font.
 - Row of a diff's file list: 20 px, selected `selected_soft`; letters and `+`/`−` in `meta(10)`.
 - Right bar: 32 px header (`TOPBAR_H`) with 3 named pill tabs (Tasks, Git, GitHub; 22 px tall, corners 5, 10 px pill
   badge). There is no Chat tab: agent messages live in each task's Timeline and system notices are notifications.
-- Tasks panel (`ui/tasks.rs`, pure rules in `tasks_ui.rs`) is a **queue grouped by who moves next** (`Lane`: NEEDS YOU,
+- Tasks panel (`ui/tasks/list.rs` and `detail.rs`, pure rules in `tasks_ui/model.rs`) is a **queue grouped by who moves next** (`Lane`: NEEDS YOU,
   AGENTS WORKING, DRAFTS, FINISHED, each a `section_label` with its count in `meta(10)` `text_faint`). A row (8 px inset,
   corners 7): the **state glyph** in an 18 px column (`paint_mark`, one per `Mark`: filled ring review, ring + check test it,
   amber "!" merge stopped, red "!" failed, pulsing dot in the agent's colour working, amber pulse resolving a conflict,

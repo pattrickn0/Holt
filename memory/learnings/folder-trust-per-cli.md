@@ -1,7 +1,7 @@
 ---
 title: Each CLI stores folder trust in a different place and with different rules
 summary: Claude inherits from the parent folder (~/.claude.json), Codex from repository root and accepts -c, Antigravity only by exact path (settings.json).
-touches: [crates/core/src/trust.rs, crates/core/src/agents.rs, crates/core/src/tasks/**]
+touches: [crates/core/src/trust.rs, crates/core/src/agents/**, crates/core/src/tasks/**]
 ---
 Verified on 2026-10-25 (Claude Code 2.1.310, Codex 0.164.0, `agy` 1.4.7), opening each CLI in a PTY inside a new directory:
 

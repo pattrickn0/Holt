@@ -1,7 +1,7 @@
 ---
 title: A finished task's worktree may outlive it; the sweep is the safety net
 summary: Validation and discard remove the worktree once; if that fails (file held open, permissions, crash), the folder is swept when the project opens.
-touches: [crates/core/src/tasks/finish.rs, crates/app/src/tasks_ui.rs]
+touches: [crates/core/src/tasks/finish.rs, crates/app/src/tasks_ui/**]
 ---
 `remove_task_worktree` already retries (`REMOVE_TRIES`), falls back to `remove_dir_all`, and reports the leftovers
 through `file_lock::leftovers` (which files remained and who holds them). Even so, a folder can survive: a process

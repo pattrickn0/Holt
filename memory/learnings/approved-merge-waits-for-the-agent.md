@@ -1,7 +1,7 @@
 ---
 title: An approved merge that conflicted waits for the agent and merges by itself
 summary: A conflict at merge time sends the task back to the agent with merge_approved set; task_done merges on redelivery (max 3 requests), and done refuses a branch that does not merge cleanly.
-touches: [crates/core/src/tasks/**, crates/app/src/tasks_ui.rs, crates/app/src/ui/tasks.rs]
+touches: [crates/core/src/tasks/**, crates/app/src/tasks_ui/**, crates/app/src/ui/tasks/**]
 ---
 A task has three persisted fields for this: `merge_approved` (the reviewer already decided to merge), `conflict_asks`
 (automatic requests so far) and `merge_stopped` (why an automatic merge did not happen, shown on the card).

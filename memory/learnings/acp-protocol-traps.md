@@ -1,7 +1,7 @@
 ---
 title: ACP (Agent Client Protocol) traps behind the generic chat backend
 summary: The flags per CLI come from the ACP registry (not from memory), session/load streams the history before it answers, a cancel must also answer the open permission requests, and the recorded samples are written from the schema, not recorded.
-touches: [crates/core/src/chat/acp.rs, crates/core/tests/data/acp-*.jsonl, crates/core/tests/support/fake_acp_agent.rs, crates/core/src/agents.rs]
+touches: [crates/core/src/chat/acp.rs, crates/core/tests/data/acp-*.jsonl, crates/core/tests/support/fake_acp_agent.rs, crates/core/src/agents/**]
 ---
 One `AcpBackend`/`AcpProtocol` (`chat/acp.rs`) serves every CLI with an ACP mode; the row of `acp::CLIS` is the only thing
 that differs. What cost time or is easy to get wrong:

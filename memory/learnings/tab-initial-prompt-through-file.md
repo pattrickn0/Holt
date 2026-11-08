@@ -1,7 +1,7 @@
 ---
 title: A tab that needs to launch receives its request via file, not typed input
 summary: Typing into a CLI that is still booting drops text; initial prompt is an ASCII line instructing it to read a file.
-touches: [crates/core/src/tasks/**, crates/core/src/agents.rs, crates/core/src/models.rs, crates/core/src/delivery.rs]
+touches: [crates/core/src/tasks/**, crates/core/src/agents/**, crates/core/src/models.rs, crates/core/src/delivery.rs]
 ---
 Typing text into a tab that is still initializing (brand new, or restarted process) drops input: the CLI is still booting up (observed
 with Antigravity). Therefore, task briefs, feedback, and rejection notices are written to `data/tasks/<project>-<id>-brief.md` (or

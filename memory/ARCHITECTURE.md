@@ -33,7 +33,7 @@ crates/
 
 ## Inter-agent protocol and bridge contract (`ask-agent`)
 
-### Environment of each agent process (`crates/core/src/agents.rs`, `env.rs`)
+### Environment of each agent process (`crates/core/src/agents/`, `env.rs`)
 
 Each interactive tab (and headless execution) receives a sanitized environment:
 
@@ -55,7 +55,7 @@ Bridge instructions (use of `ask-agent`, prohibition of CLI-internal subagents w
 | Goose, Copilot, Ollama, Mimo Code, Crush, Cline, Amp, Droid, Continue, llama.cpp, Plandex, and custom CLIs (`Add CLI…`) | read the folder's `AGENTS.md`: if missing, the app creates one with only the `<!-- holt:start/end -->` block and shows a notification; if already present, updates only the block |
 | Amazon Q, Terminal | no instruction channel |
 
-The catalog in `crates/core/src/agents.rs` covers 20 AI CLIs (`claude`, `antigravity`, `codex`, `opencode`, `aider`, `goose`, `copilot`, `gemini`, `qwen`, `q`, `interpreter`, `ollama`, `mimo`, `crush`, `cline`, `amp`, `droid`, `cn`, `llama-cli`, `plandex`) plus `shell` (`Terminal`), and the user can add any command (`program + args`) via **Add CLI…**, persisted in `Config::custom_agents` (`config.json`) with an automatically generated `#rrggbb` color (`next_agent_color`) that never repeats any fixed or custom agent's color. For local CLIs (`ollama`, `mimo`, `llama-cli`, and custom CLIs with local models), `Registry` queries `ollama list`, Mimo config/CLI, or command flags (30 s cache) and surfaces `local_model` so the menu, tab pill, and sidebar always show `"<Agent> · <model>"`.
+The catalog in `crates/core/src/agents/defs.rs` covers 20 AI CLIs (`claude`, `antigravity`, `codex`, `opencode`, `aider`, `goose`, `copilot`, `gemini`, `qwen`, `q`, `interpreter`, `ollama`, `mimo`, `crush`, `cline`, `amp`, `droid`, `cn`, `llama-cli`, `plandex`) plus `shell` (`Terminal`), and the user can add any command (`program + args`) via **Add CLI…**, persisted in `Config::custom_agents` (`config.json`) with an automatically generated `#rrggbb` color (`next_agent_color`) that never repeats any fixed or custom agent's color. For local CLIs (`ollama`, `mimo`, `llama-cli`, and custom CLIs with local models), `Registry` queries `ollama list`, Mimo config/CLI, or command flags (30 s cache) and surfaces `local_model` so the menu, tab pill, and sidebar always show `"<Agent> · <model>"`.
 
 The text in a shared file (`data/holt-instructions.md` and `AGENTS.md` block) does not list agents installed on the machine, so as not to dirty `git status` across computers.
 
@@ -140,7 +140,7 @@ The policy in `delivery.rs` avoids overriding the user or TUI:
 
 ---
 
-## Chat view of an agent tab (`crates/core/src/chat.rs`, `app/src/deck/chat.rs`, `app/src/ui/chat.rs`)
+## Chat view of an agent tab (`crates/core/src/chat/`, `app/src/deck/chat.rs`, `app/src/ui/chat.rs`)
 
 A tab of Claude, Antigravity, Codex or any CLI with an ACP mode (OpenCode, Goose, Gemini, Copilot, Qwen) shows a friendly chat (messages, tool calls with diffs, permission cards, a composer) instead of the CLI's
 terminal UI, with the CLI still running underneath. Holt never reads the terminal screen: the CLI runs in its **structured mode**
@@ -184,14 +184,14 @@ A **native backend** (Claude, Antigravity, Codex stay native: they give usage, e
    - `answer_permission(...) -> Vec<String>`: serializes approval decisions.
    - `interrupt(&mut self) -> Interrupt`: returns stdin lines or process group signal.
 3. Wire into `chat/backend.rs`: register in `for_kind()`.
-4. Register visual assets: color in `agents.rs` / `app/src/agents.rs` and icon in `ui/chat.rs`.
+4. Register visual assets: color in `agents/defs.rs` / `app/src/agents.rs` and icon in `ui/chat.rs`.
 5. Add recorded test samples under `crates/core/tests/data/` and unit tests in `chat/` and `tests/chat.rs`.
 
 ### OpenCode
 
 `opencode serve` (HTTP + SSE) is not used: `opencode acp` speaks ACP, so OpenCode goes through the generic backend. In the chat view `opencode acp` runs as its own process (no `--standalone`); the model and the Holt instructions still travel in `OPENCODE_CONFIG_CONTENT`, as in the terminal view. The terminal view keeps `--standalone` and `--session <id>` (`opencode-tui-standalone-and-config.md`); the id it uses is an OpenCode session, so the chat can `session/load` it and the other way round.
 
-## Tasks desk (`crates/core/src/tasks/`, `scope.rs`, `crates/app/src/tasks_ui.rs`)
+## Tasks desk (`crates/core/src/tasks/`, `scope.rs`, `crates/app/src/tasks_ui/`)
 
 Each task (`t1`, `t2`…, per-project counter never reused) isolates work in an agent (`<model>@tN`), a branch (`task/<id>-<slug>`), and a dedicated worktree.
 
@@ -225,4 +225,4 @@ Draft ──start──▶ Running ──done──▶ Review ──merge──�
 
 - **Center organization (`crates/app/src/split.rs`, `ui/panes.rs`, `ui/tabs.rs`):** groups project tabs by CLI type. In `Split`, builds automatic grid with saved ratios; in `Highlight`, places active tab group in 2/3 on left (switching active tab switches highlight) and stacks others on right; in `Tabs`, uses single window. PTY is resized only when size stabilizes and mouse is released (150 ms debounce on drag, 600 ms on Highlight switch, and 300 ms after prior resize exit, 3 s ceiling).
 - **Documents mode and editor (`crates/app/src/docs.rs`, `ui/docs.rs`, `ui/code.rs`, `ui/diff_view.rs`, `highlight.rs`):** toggles center (`Ctrl+Shift+D`) between terminals and document tabs (`TaskDiff`, `CommitDiff`, `FileDiff`, `File`, `Markdown`). With terminals hidden, no resize or keypress reaches them and turn ends turn into a badge on "Agents". Files up to 256 KB (lines ≤ 4,000 bytes, UTF-8 without mixed CRLF/LF) open in editor with layout/highlight cache and atomic save preserving CRLF/LF and BOM; external changes detected by watcher with unsaved edit do not overwrite buffer and open resolution banner. Files up to 1 MB and diffs use line-by-line rendering with custom selection (`ui/select.rs`) and search (`Ctrl+F`); Markdown uses `egui_commonmark`.
-- **Local Git and GitHub (`crates/core/src/git.rs`, `github.rs`, `crates/app/src/git_ui.rs`, `github_ui.rs`):** local Git runs `git` binary without a shell, passing paths and commit message via stdin with non-interactive environment (`GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`), while watcher observes `.git/` (`HEAD`, `index`, `refs/`). GitHub panel reads `origin` remote, retrieves token only in memory (`git credential fill` or `gh auth token`, dropped on 401), queries `api.github.com` in threads (60 s cache), and downloads trailing 32 KiB of failed job logs without resending `Authorization` after redirect.
+- **Local Git and GitHub (`crates/core/src/git/`, `github.rs`, `crates/app/src/git_ui.rs`, `github_ui.rs`):** local Git runs `git` binary without a shell, passing paths and commit message via stdin with non-interactive environment (`GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`), while watcher observes `.git/` (`HEAD`, `index`, `refs/`). GitHub panel reads `origin` remote, retrieves token only in memory (`git credential fill` or `gh auth token`, dropped on 401), queries `api.github.com` in threads (60 s cache), and downloads trailing 32 KiB of failed job logs without resending `Authorization` after redirect.

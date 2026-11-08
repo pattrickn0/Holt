@@ -1,7 +1,7 @@
 ---
 title: Antigravity's structured mode (stream-json): what it really emits and expects
 summary: Checked on agy 1.4.10 — stream input requires {"event":"user","message":{"content":...}}, stdout uses {"event":...}, permission mode defaults to always-proceed, turns cut via SIGINT to process group.
-touches: [crates/core/src/chat.rs, crates/core/src/agents.rs, crates/core/src/process.rs, crates/core/tests/data/antigravity-stream-*.jsonl]
+touches: [crates/core/src/chat/**, crates/core/src/agents/**, crates/core/src/process.rs, crates/core/tests/data/antigravity-stream-*.jsonl]
 ---
 Recorded 2026-10-29 with `agy --input-format stream-json --output-format stream-json --mode auto` (samples in `crates/core/tests/data/antigravity-stream-*.jsonl`):
 

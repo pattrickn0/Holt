@@ -1,7 +1,7 @@
 ---
 title: Resuming Antigravity and Codex: the id is read from agy's log and from Codex's notify (not from us)
 summary: agy --conversation <id> with the id from its --log-file; codex resume <id> with the thread-id of the notify JSON, filtered by its rollout (a hidden title thread calls notify too); bare ask-agent in notify was not found on Windows.
-touches: [crates/core/src/resume.rs, crates/core/src/agents.rs, crates/core/src/bridge.rs, crates/cli/src/bin/ask-agent.rs, crates/app/src/deck/frame.rs]
+touches: [crates/core/src/resume.rs, crates/core/src/agents/**, crates/core/src/bridge.rs, crates/cli/src/bin/ask-agent.rs, crates/app/src/deck/frame.rs]
 ---
 Part B of the resume work (`resume-session-flags-per-cli.md` has the base and Claude/OpenCode). These two CLIs choose the
 id of a conversation themselves, so the app learns it after the launch (`resume::learns_id_later`). Checked on this machine

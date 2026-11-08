@@ -1,7 +1,7 @@
 ---
 title: OpenCode TUI requires --standalone to read model and environment instructions
 summary: OPENCODE_CONFIG_CONTENT is only read by the process launching the server; the TUI always launches with --standalone and build_agent_env cleans up inherited variables.
-touches: [crates/core/src/models.rs, crates/core/src/agents.rs]
+touches: [crates/core/src/models.rs, crates/core/src/agents/**]
 ---
 OpenCode's TUI lacks a `--model` flag or command-line option for system instructions (only `opencode run` and `mini`
 support `-m`, and the `model#high` variant only exists under `run -m`). In interactive tabs, the model and

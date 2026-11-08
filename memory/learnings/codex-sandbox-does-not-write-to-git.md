@@ -1,7 +1,7 @@
 ---
 title: Codex sandbox does not write to .git, even with --add-dir
 summary: In a task worktree, Codex's `git add`/`git commit` yields "Access is denied"; committing requires approval outside the sandbox.
-touches: [crates/core/src/agents.rs, crates/core/src/tasks/**]
+touches: [crates/core/src/agents/**, crates/core/src/tasks/**]
 ---
 A task worktree stores its index and HEAD in `<repo>/.git/worktrees/<id>`, outside the task folder. In
 `workspace-write` mode (the default for Codex 0.164 on Windows, with `sandbox = "elevated"`), Codex protects any path in
