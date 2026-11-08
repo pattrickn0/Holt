@@ -66,20 +66,27 @@ pub fn new_tab_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
     };
     let with_arrow: Vec<bool> =
         items.iter().map(|m| picks_model(&m.kind) && deck.agents.available.iter().any(|a| a.id == m.kind && a.installed)).collect();
+    let with_edit: Vec<bool> = items.iter().map(|m| deck.agents.is_custom(&m.kind)).collect();
     let font = theme::ui(12.0);
     let painter = ctx.layer_painter(egui::LayerId::new(Order::Foreground, Id::new("measure")));
+    let add_label = t!("Add CLI…");
     let content_w = items
         .iter()
-        .zip(&with_arrow)
-        .map(|(m, &arrow)| 8.0 + 8.0 + text_w(&painter, &m.label, font.clone()) + 20.0 + if arrow { CHEVRON_W } else { 0.0 })
-        .fold(0.0, f32::max);
+        .enumerate()
+        .map(|(i, m)| {
+            8.0 + 8.0 + text_w(&painter, &m.label, font.clone()) + 20.0 + if with_arrow[i] || with_edit[i] { CHEVRON_W } else { 0.0 }
+        })
+        .fold(8.0 + 8.0 + text_w(&painter, add_label, font.clone()) + 20.0, f32::max);
     let w = (content_w + 8.0 + 2.0).max(180.0);
     let item_h = 26.0;
-    let h = items.len() as f32 * item_h + 8.0;
+    let sep_h = 9.0;
+    let h = items.len() as f32 * item_h + sep_h + item_h + 8.0;
     let pos = keep_on_screen(ctx, Pos2::new(anchor.min.x, anchor.max.y), Vec2::new(w, h));
     let menu_rect = Rect::from_min_size(pos, Vec2::new(w, h));
     let mut chosen = None;
     let mut pick_model_of = None;
+    let mut edit_cli_of = None;
+    let mut add_cli = false;
     Area::new(Id::new("new-tab-menu")).order(Order::Foreground).fixed_pos(pos).constrain(false).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
         let p = ui.painter();
@@ -87,17 +94,20 @@ pub fn new_tab_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         shadow(p, rect, 8, 8, 24, pal.shadow);
         frame(p, rect, 8.0, pal.popup, pal.glass_border);
         let mut y = rect.min.y + 4.0;
-        for (m, &arrow) in items.iter().zip(&with_arrow) {
+        for (i, m) in items.iter().enumerate() {
+            let arrow = with_arrow[i];
+            let edit = with_edit[i];
+            let has_tail = arrow || edit;
             let r = Rect::from_min_size(Pos2::new(rect.min.x + 4.0, y), Vec2::new(w - 8.0, item_h));
             y += item_h;
-            let name_r = if arrow { Rect::from_min_max(r.min, Pos2::new(r.max.x - CHEVRON_W, r.max.y)) } else { r };
+            let name_r = if has_tail { Rect::from_min_max(r.min, Pos2::new(r.max.x - CHEVRON_W, r.max.y)) } else { r };
             let resp = super::clickable(ui, name_r, Id::new(("new-tab-item", &m.kind)));
-            let arrow_resp = arrow.then(|| {
+            let tail_resp = has_tail.then(|| {
                 let ar = Rect::from_min_max(Pos2::new(r.max.x - CHEVRON_W, r.min.y), r.max);
-                super::clickable(ui, ar, Id::new(("new-tab-models", &m.kind)))
+                super::clickable(ui, ar, Id::new(("new-tab-tail", &m.kind)))
             });
-            let arrow_hot = arrow_resp.as_ref().is_some_and(|a| a.hovered());
-            if resp.hovered() || arrow_hot {
+            let tail_hot = tail_resp.as_ref().is_some_and(|a| a.hovered());
+            if resp.hovered() || tail_hot {
                 p.rect_filled(r, 5.0, pal.hover);
             }
             super::projects::paint_kind_mark(&mut deck.icons, p, Pos2::new(r.min.x + 10.0 + 4.0, r.center().y), &m.kind, m.color);
@@ -109,19 +119,58 @@ pub fn new_tab_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
                 font.clone(),
                 pal.text,
             );
-            if let Some(a) = arrow_resp {
+            if let Some(a) = tail_resp {
                 let ar = Rect::from_min_max(Pos2::new(r.max.x - CHEVRON_W, r.min.y), r.max);
-                text_in(p, ar, Align2::CENTER_CENTER, "›", theme::ui(14.0), if arrow_hot { pal.text } else { pal.text_2 });
-                if super::tip(a, t!("Choose the model for {agent}", agent = &m.label)).clicked() {
-                    pick_model_of = Some(m.kind.clone());
+                if arrow {
+                    text_in(p, ar, Align2::CENTER_CENTER, "›", theme::ui(14.0), if tail_hot { pal.text } else { pal.text_2 });
+                    if super::tip(a, t!("Choose the model for {agent}", agent = &m.label)).clicked() {
+                        pick_model_of = Some(m.kind.clone());
+                    }
+                } else if edit {
+                    text_in(p, ar, Align2::CENTER_CENTER, "✎", theme::ui(12.0), if tail_hot { pal.text } else { pal.text_2 });
+                    if super::tip(a, t!("Edit or remove {agent}", agent = &m.label)).clicked() {
+                        edit_cli_of = Some(m.kind.clone());
+                    }
                 }
             }
             if resp.clicked() {
                 chosen = Some(m.kind.clone());
             }
         }
+        separator(p, Pos2::new(rect.min.x + 8.0, y + 4.5), Pos2::new(rect.max.x - 8.0, y + 4.5));
+        y += sep_h;
+        let add_r = Rect::from_min_size(Pos2::new(rect.min.x + 4.0, y), Vec2::new(w - 8.0, item_h));
+        let add_resp = super::clickable(ui, add_r, Id::new("new-tab-add-cli"));
+        let add_hot = add_resp.hovered();
+        if add_hot {
+            p.rect_filled(add_r, 5.0, pal.hover);
+        }
+        let add_color = if add_hot { pal.text } else { pal.text_2 };
+        text_in(
+            p,
+            Rect::from_center_size(Pos2::new(add_r.min.x + 10.0 + 4.0, add_r.center().y), Vec2::splat(14.0)),
+            Align2::CENTER_CENTER,
+            "+",
+            theme::ui_semibold(13.0),
+            add_color,
+        );
+        text_in(
+            p,
+            Rect::from_min_max(Pos2::new(add_r.min.x + 10.0 + 16.0, add_r.min.y), add_r.max),
+            Align2::LEFT_CENTER,
+            add_label,
+            font,
+            add_color,
+        );
+        if add_resp.clicked() {
+            add_cli = true;
+        }
     });
-    if let Some(kind) = pick_model_of {
+    if add_cli {
+        deck.open_add_cli_modal();
+    } else if let Some(kind) = edit_cli_of {
+        deck.open_edit_cli_modal(&kind);
+    } else if let Some(kind) = pick_model_of {
         deck.request_models(&kind);
         deck.new_tab_models_for = Some(kind);
         deck.new_tab_provider = None;
@@ -710,6 +759,9 @@ pub fn tab_context_menu(deck: &mut Deck, ctx: &egui::Context) {
         ));
     }
     items.push((TabAction::Rename, t!("Rename"), None));
+    if deck.agents.is_custom(&deck.tabs[idx].kind) {
+        items.push((TabAction::EditCli, t!("Edit CLI…"), None));
+    }
     if !in_chat {
         items.push((
             TabAction::Record,
@@ -772,6 +824,10 @@ pub fn tab_context_menu(deck: &mut Deck, ctx: &egui::Context) {
                     deck.set_tab_view(idx, to_chat);
                 }
                 TabAction::Rename => deck.start_rename_tab(idx),
+                TabAction::EditCli => {
+                    let kind = deck.tabs[idx].kind.clone();
+                    deck.open_edit_cli_modal(&kind);
+                }
                 TabAction::Record => deck.toggle_terminal_recording(idx),
                 TabAction::Snapshot => deck.save_terminal_snapshot(idx),
                 TabAction::Close => deck.close_tab(idx),
@@ -789,6 +845,7 @@ pub fn tab_context_menu(deck: &mut Deck, ctx: &egui::Context) {
 enum TabAction {
     ToggleView,
     Rename,
+    EditCli,
     Record,
     Snapshot,
     Close,
@@ -906,6 +963,149 @@ pub fn rename_tab_modal(deck: &mut Deck, ctx: &egui::Context) {
         }
     } else {
         deck.rename_tab = Some((idx, buffer, error));
+    }
+}
+
+/// Modal to add a new CLI or edit/remove a saved custom CLI.
+pub fn cli_modal(deck: &mut Deck, ctx: &egui::Context) {
+    let Some(mut modal) = deck.cli_modal.clone() else { return };
+    let screen = ctx.content_rect();
+    super::modal_backdrop(deck, ctx, "cli-backdrop");
+
+    let w = 380.0;
+    let h = if modal.error.is_some() { 216.0 } else { 196.0 };
+    let rect = Rect::from_center_size(screen.center(), Vec2::new(w, h));
+    let mut close = false;
+    let mut save = false;
+    let mut remove = false;
+    let pal = theme::pal();
+
+    Area::new(Id::new("cli-modal")).order(Order::Tooltip).fixed_pos(rect.min).show(ctx, |ui| {
+        let (r, _) = ui.allocate_exact_size(rect.size(), Sense::hover());
+        let p = ui.painter().clone();
+        shadow(&p, r, 10, 8, 24, pal.shadow);
+        frame(&p, r, 10.0, pal.popup, pal.glass_border);
+
+        let mut y = r.min.y + 14.0;
+        let title_text = if modal.editing_id.is_some() { t!("Edit CLI") } else { t!("Add CLI") };
+        let title_g = super::galley(&p, title_text, theme::ui_semibold(13.0), pal.text_strong);
+        super::place(
+            &p,
+            Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(w - 32.0, 18.0)),
+            Align2::LEFT_CENTER,
+            title_g,
+            pal.text_strong,
+        );
+        y += 22.0;
+
+        // Name field
+        let name_lbl = super::galley(&p, t!("Name"), theme::ui(11.5), pal.text_2);
+        super::place(
+            &p,
+            Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(w - 32.0, 16.0)),
+            Align2::LEFT_CENTER,
+            name_lbl,
+            pal.text_2,
+        );
+        y += 18.0;
+
+        let name_id = Id::new("cli-modal-name");
+        let name_focused = ui.ctx().memory(|m| m.has_focus(name_id));
+        let name_r = Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(w - 32.0, 28.0));
+        p.rect_filled(name_r, 6.0, pal.recess);
+        p.rect_stroke(name_r, 6.0, Stroke::new(1.0, if name_focused { theme::accent() } else { pal.separator }), egui::StrokeKind::Inside);
+        let mut name_child = ui.new_child(egui::UiBuilder::new().max_rect(name_r.shrink2(Vec2::new(8.0, 4.0))));
+        let name_out = egui::TextEdit::singleline(&mut modal.label)
+            .id(name_id)
+            .frame(egui::Frame::NONE)
+            .font(theme::ui(12.0))
+            .text_color(pal.text)
+            .hint_text(t!("e.g. Mimo Local"))
+            .desired_width(name_r.width() - 16.0)
+            .show(&mut name_child);
+        if !modal.focus_requested {
+            name_out.response.request_focus();
+            modal.focus_requested = true;
+        }
+        y += 36.0;
+
+        // Command field
+        let cmd_lbl = super::galley(&p, t!("Command (program and arguments)"), theme::ui(11.5), pal.text_2);
+        super::place(
+            &p,
+            Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(w - 32.0, 16.0)),
+            Align2::LEFT_CENTER,
+            cmd_lbl,
+            pal.text_2,
+        );
+        y += 18.0;
+
+        let cmd_id = Id::new("cli-modal-command");
+        let cmd_focused = ui.ctx().memory(|m| m.has_focus(cmd_id));
+        let cmd_r = Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(w - 32.0, 28.0));
+        p.rect_filled(cmd_r, 6.0, pal.recess);
+        p.rect_stroke(cmd_r, 6.0, Stroke::new(1.0, if cmd_focused { theme::accent() } else { pal.separator }), egui::StrokeKind::Inside);
+        let mut cmd_child = ui.new_child(egui::UiBuilder::new().max_rect(cmd_r.shrink2(Vec2::new(8.0, 4.0))));
+        egui::TextEdit::singleline(&mut modal.command)
+            .id(cmd_id)
+            .frame(egui::Frame::NONE)
+            .font(theme::mono(12.0))
+            .text_color(pal.text)
+            .hint_text(t!("e.g. mimo --chat"))
+            .desired_width(cmd_r.width() - 16.0)
+            .show(&mut cmd_child);
+        if ui.input(|i| i.key_pressed(Key::Enter)) {
+            save = true;
+        }
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            close = true;
+        }
+        y += 36.0;
+
+        if let Some(err) = &modal.error {
+            let err_g = super::galley_trunc(&p, err, theme::ui(11.5), pal.danger_text, w - 32.0);
+            super::place(
+                &p,
+                Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(w - 32.0, 16.0)),
+                Align2::LEFT_CENTER,
+                err_g,
+                pal.danger_text,
+            );
+            y += 20.0;
+        }
+
+        let btn_h = 26.0;
+        if modal.editing_id.is_some() {
+            let rm_w = button_width(&p, t!("Remove"), ButtonKind::Secondary);
+            let rm_r = Rect::from_min_size(Pos2::new(r.min.x + 16.0, y), Vec2::new(rm_w, btn_h));
+            if button_danger(ui, rm_r, Id::new("cli-remove-btn"), t!("Remove")).clicked() {
+                remove = true;
+            }
+        }
+        let save_w = button_width(&p, t!("Save"), ButtonKind::Primary);
+        let cancel_w = button_width(&p, t!("Cancel"), ButtonKind::Secondary);
+        let save_r = Rect::from_min_size(Pos2::new(r.max.x - 16.0 - save_w, y), Vec2::new(save_w, btn_h));
+        let cancel_r = Rect::from_min_size(Pos2::new(save_r.min.x - 8.0 - cancel_w, y), Vec2::new(cancel_w, btn_h));
+
+        if button(ui, cancel_r, Id::new("cli-cancel-btn"), t!("Cancel"), ButtonKind::Secondary).clicked() {
+            close = true;
+        }
+        if button(ui, save_r, Id::new("cli-save-btn"), t!("Save"), ButtonKind::Primary).clicked() {
+            save = true;
+        }
+    });
+
+    if close {
+        deck.cli_modal = None;
+    } else if remove {
+        if let Some(id) = modal.editing_id {
+            deck.remove_custom_cli(&id);
+        }
+    } else if save {
+        deck.cli_modal = Some(modal);
+        deck.save_cli_modal();
+    } else {
+        deck.cli_modal = Some(modal);
     }
 }
 

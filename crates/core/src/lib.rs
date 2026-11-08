@@ -59,7 +59,7 @@ use parking_lot::{Mutex, RwLock};
 
 pub use agents::{AgentInfo, SpawnSpec};
 pub use chat::{idle_label, phase_for_command, Phase};
-pub use config::{Config, DictationChoice, Organization, ProjectCfg};
+pub use config::{Config, CustomAgent, DictationChoice, Organization, ProjectCfg};
 pub use env::{env_var, env_var_os};
 pub use events::{CoreEvent, Delivery, DownloadProgress, DownloadState, FeedEntry, FeedKind, Tone};
 pub use exchange::PendingInfo;
@@ -407,7 +407,40 @@ impl Core {
     /// List of agents for menus (same semantics as `agents:list`). It may block (searches for the
     /// CLIs on disk and queries `gh`): call it outside the UI thread.
     pub fn list_agents(&self) -> Vec<AgentInfo> {
-        self.inner.agents.list()
+        let custom = self.inner.config.read().custom_agents.clone();
+        self.inner.agents.list_with(&custom)
+    }
+
+    /// Finds a user-added CLI agent by `id`.
+    pub fn custom_agent(&self, id: &str) -> Option<CustomAgent> {
+        self.inner.config.read().custom_agent(id).cloned()
+    }
+
+    /// Adds a new custom CLI agent, persists it to `config.json`, and returns the saved entry.
+    pub fn add_custom_agent(&self, label: &str, command: &str) -> Result<CustomAgent, String> {
+        let mut out = Err(String::new());
+        self.update_config(|c| {
+            out = c.add_custom_agent(label, command);
+        });
+        out
+    }
+
+    /// Updates the display name and command of an existing custom CLI agent and persists it to `config.json`.
+    pub fn update_custom_agent(&self, id: &str, label: &str, command: &str) -> Result<CustomAgent, String> {
+        let mut out = Err(String::new());
+        self.update_config(|c| {
+            out = c.update_custom_agent(id, label, command);
+        });
+        out
+    }
+
+    /// Removes a user-added custom CLI agent from `config.json`.
+    pub fn remove_custom_agent(&self, id: &str) -> bool {
+        let mut removed = false;
+        self.update_config(|c| {
+            removed = c.remove_custom_agent(id);
+        });
+        removed
     }
 
     /// Builds the command to open, in the folder of project `project`, an interactive terminal of agent
@@ -630,7 +663,8 @@ impl Core {
     /// Ids that can be used with `ask-agent` in the project: the installed agents and the instances
     /// open in it (those of other projects do not appear).
     pub fn peers(&self, project: &str) -> Vec<String> {
-        let mut out = self.inner.agents.peers();
+        let custom = self.inner.config.read().custom_agents.clone();
+        let mut out = self.inner.agents.peers_with(&custom);
         for id in self.project_instance_ids(project) {
             if !out.contains(&id) && Ident::parse(&id).is_some_and(|i| out.contains(&i.kind)) {
                 out.push(id);
@@ -641,7 +675,8 @@ impl Core {
 
     /// Bridge instructions for agent `self_id` (`None` = the generic text of AGENTS.md).
     pub fn bridge_instructions(&self, self_id: Option<&str>) -> String {
-        self.inner.agents.bridge_instructions(self_id)
+        let custom = self.inner.config.read().custom_agents.clone();
+        self.inner.agents.bridge_instructions_with(self_id, &custom)
     }
 
     // ---------- Projects ----------
@@ -1064,5 +1099,55 @@ mod tests {
         core.shutdown();
         lock_data_dir(&root.join("data")).expect("the folder is free right after the shutdown");
         drop(still_alive);
+    }
+
+    #[test]
+    fn custom_cli_joins_agents_peers_and_spawns_with_holt_env_and_agents_md() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let ws = root.join("ws");
+        std::fs::create_dir_all(&ws).expect("ws");
+        let paths = paths::AppPaths {
+            app_dir: root.join("app"),
+            bin_dir: root.join("bin"),
+            data_dir: root.join("data"),
+            default_workspace: ws.clone(),
+            whisper_dir: root.join("whisper"),
+            config_file: root.join("cfg").join("config.json"),
+        };
+        let opts = StartOptions {
+            search_path: Some(root.join("empty").into_os_string()),
+            home_dir: Some(root.join("home")),
+            watch_workspace: false,
+            config: Some(Config::with_project(ws.clone())),
+            system_dirs: false,
+        };
+        let (core, _rx) = Core::start_with(paths, opts).expect("start");
+        let proj = core.active_project_id();
+
+        let added = core.add_custom_agent("Mimo Local", "mimo-custom --fast --model mimo-2.6-9b").expect("add");
+        assert_eq!(added.id, "mimo-local");
+        assert!(core.peers(&proj).contains(&"mimo-local".to_owned()));
+
+        let listed = core.list_agents();
+        let info = listed.iter().find(|a| a.id == "mimo-local").expect("listed");
+        assert!(info.custom && info.installed && info.peer);
+        assert_eq!(info.label, "Mimo Local");
+        assert_eq!(info.command.as_deref(), Some("mimo-custom --fast --model mimo-2.6-9b"));
+        assert_eq!(info.local_model.as_deref(), Some("mimo-2.6-9b"));
+
+        let ident = Ident::parse("mimo-local@dev").expect("ident");
+        let spec = core.spawn_spec_for(&proj, &ident).expect("spawn");
+        assert_eq!(spec.program, PathBuf::from("mimo-custom"));
+        assert_eq!(spec.args, vec!["--fast", "--model", "mimo-2.6-9b"]);
+        assert_eq!(spec.cwd, ws);
+        assert_eq!(spec.label, "Mimo Local");
+        assert_eq!(spec.color, added.color);
+        assert_eq!(spec.model.as_deref(), Some("mimo-2.6-9b"));
+        assert_eq!(spec.env.get("HOLT_AGENT").map(String::as_str), Some("mimo-local@dev"));
+        assert_eq!(spec.env.get("HOLT_ROLE").map(String::as_str), Some("dev"));
+        assert!(spec.env.get("HOLT_TOKEN").is_some_and(|t| !t.is_empty()));
+        assert!(ws.join("AGENTS.md").is_file(), "AGENTS.md created for custom CLI");
+        core.shutdown();
     }
 }

@@ -97,8 +97,36 @@ pub const ENTRIES: &[(&str, &str)] = &[
         "Open Interpreter not found. Install with:\r\n  pip install open-interpreter",
         "Open Interpreter não encontrado. Instale com:\r\n  pip install open-interpreter",
     ),
+    (
+        "Ollama CLI (ollama) not found. Install from: https://ollama.com",
+        "Ollama CLI (ollama) não encontrado. Instale a partir de: https://ollama.com",
+    ),
+    ("Mimo Code CLI (mimo) not found.", "Mimo Code CLI (mimo) não encontrado."),
+    (
+        "Crush CLI (crush) not found. Install from: https://github.com/charmbracelet/crush",
+        "Crush CLI (crush) não encontrado. Instale a partir de: https://github.com/charmbracelet/crush",
+    ),
+    (
+        "Cline CLI (cline) not found. Install with:\r\n  npm install -g cline",
+        "Cline CLI (cline) não encontrado. Instale com:\r\n  npm install -g cline",
+    ),
+    (
+        "Amp CLI (amp) not found. Install with:\r\n  npm install -g @sourcegraph/amp",
+        "Amp CLI (amp) não encontrado. Instale com:\r\n  npm install -g @sourcegraph/amp",
+    ),
+    ("Factory Droid CLI (droid) not found.", "Factory Droid CLI (droid) não encontrado."),
+    (
+        "Continue CLI (cn) not found. Install with:\r\n  npm install -g @continuedev/cli",
+        "Continue CLI (cn) não encontrado. Instale com:\r\n  npm install -g @continuedev/cli",
+    ),
+    ("llama.cpp CLI (llama-cli) not found.", "llama.cpp CLI (llama-cli) não encontrado."),
+    (
+        "Plandex CLI (plandex) not found. Install from: https://plandex.ai",
+        "Plandex CLI (plandex) não encontrado. Instale a partir de: https://plandex.ai",
+    ),
     ("Shell not found.", "Shell não encontrado."),
-    // Errors (agents.rs)
+    // Errors (agents.rs / config.rs)
+    ("Enter the CLI command.", "Informe o comando do CLI."),
     ("Unknown project: {project}", "Projeto desconhecido: {project}"),
     (
         "The task folder no longer exists ({dir}). Discard the task on the tasks desk.",

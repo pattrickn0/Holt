@@ -323,8 +323,8 @@ impl Deck {
     fn add_tab(&mut self, project: String, ident: Ident, restoring: bool, auto: bool) {
         let kind = ident.kind.clone();
         let label = ident.label(&self.agents.name(&kind));
-        // Request > saved > role default: saves it to show in the sidebar and come back with the app.
-        let model = self.core.assign_model(&project, &ident, None);
+        // Request > saved > role default > detected local model: saves it to show in the sidebar and come back with the app.
+        let model = self.core.assign_model(&project, &ident, None).or_else(|| self.agents.local_model(&kind));
         let chat = self.new_chat_tab(&project, &ident);
         let tab = Tab {
             uid: self.next_uid,
@@ -420,7 +420,7 @@ impl Deck {
                 tab.spawned_at = Some(Instant::now());
                 tab.session_log_pos = 0;
                 tab.session_poll_at = Instant::now();
-                tab.model = spec.model.clone();
+                tab.model = spec.model.clone().or_else(|| tab.model.clone());
                 tab.spec = Some(spec);
                 // Mail that nobody told this process about (the app restarted, or the notice was lost).
                 self.core.mail_tab_started(&tab.project, &ident.id());
@@ -712,6 +712,72 @@ impl Deck {
         }
         self.rename_tab = None;
         Ok(())
+    }
+
+    /// Opens the "Add CLI…" modal.
+    pub fn open_add_cli_modal(&mut self) {
+        self.new_tab_menu_open = false;
+        self.new_tab_models_for = None;
+        self.new_tab_provider = None;
+        self.tab_context_menu = None;
+        self.cli_modal =
+            Some(CliModal { editing_id: None, label: String::new(), command: String::new(), error: None, focus_requested: false });
+    }
+
+    /// Opens the "Edit CLI" modal for custom agent `id`.
+    pub fn open_edit_cli_modal(&mut self, id: &str) {
+        let Some(custom) = self.core.custom_agent(id) else { return };
+        self.new_tab_menu_open = false;
+        self.new_tab_models_for = None;
+        self.new_tab_provider = None;
+        self.tab_context_menu = None;
+        self.cli_modal = Some(CliModal {
+            editing_id: Some(custom.id),
+            label: custom.label,
+            command: custom.command,
+            error: None,
+            focus_requested: false,
+        });
+    }
+
+    /// Saves the "Add CLI…" / "Edit CLI" modal and updates the agent catalog and open tabs.
+    pub fn save_cli_modal(&mut self) {
+        let Some(modal) = self.cli_modal.as_ref() else { return };
+        let editing_id = modal.editing_id.clone();
+        let label = modal.label.clone();
+        let command = modal.command.clone();
+        let res = match &editing_id {
+            Some(id) => self.core.update_custom_agent(id, &label, &command),
+            None => self.core.add_custom_agent(&label, &command),
+        };
+        match res {
+            Ok(saved) => {
+                self.cli_modal = None;
+                let list = self.core.list_agents();
+                self.agents.build(&list);
+                for t in &mut self.tabs {
+                    if t.kind == saved.id {
+                        t.color = self.agents.tab_color(&t.kind);
+                        t.label = t.ident.label(&self.agents.name(&t.kind));
+                        t.model = self.agents.local_model(&t.kind);
+                    }
+                }
+            }
+            Err(err) => {
+                if let Some(m) = &mut self.cli_modal {
+                    m.error = Some(err);
+                }
+            }
+        }
+    }
+
+    /// Removes custom agent `id`, closes its modal and updates the agent catalog.
+    pub fn remove_custom_cli(&mut self, id: &str) {
+        if self.core.remove_custom_agent(id) {
+            self.cli_modal = None;
+            let list = self.core.list_agents();
+            self.agents.build(&list);
+        }
     }
 
     pub fn active_tab(&self) -> Option<&Tab> {

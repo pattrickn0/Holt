@@ -1,7 +1,7 @@
 //! UI-side agent registry: colors/names (the renderer's COLORS/NAMES) and the menu lists
 //! (`buildMenus`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use egui::Color32;
 use holt_core::agents::{COLOR_ANTIGRAVITY, COLOR_CLAUDE, COLOR_CODEX, COLOR_GEMINI, COLOR_QWEN, COLOR_SHELL};
@@ -32,6 +32,8 @@ pub struct Agents {
     pub loaded: bool,
     colors: HashMap<String, Color32>,
     names: HashMap<String, String>,
+    local_models: HashMap<String, String>,
+    custom: HashSet<String>,
     /// `availableAgents`
     pub available: Vec<AgentInfo>,
     /// "+" menu items (`renderNewTabMenu`).
@@ -47,11 +49,21 @@ impl Agents {
 
     /// Port of `buildMenus(agents)`.
     pub fn build(&mut self, agents: &[AgentInfo]) {
+        self.colors.clear();
+        self.names.clear();
+        self.local_models.clear();
+        self.custom.clear();
         let color_of = |a: &AgentInfo| theme::parse_hex_color(&a.color).unwrap_or(theme::SHELL);
         for a in agents {
             self.colors.insert(a.id.clone(), color_of(a));
             let name = if a.id == "shell" { shell_label(Some(&a.label)) } else { a.label.clone() };
             self.names.insert(a.id.clone(), name);
+            if let Some(m) = &a.local_model {
+                self.local_models.insert(a.id.clone(), m.clone());
+            }
+            if a.custom {
+                self.custom.insert(a.id.clone());
+            }
         }
         self.colors.entry("shell".into()).or_insert(theme::SHELL);
         let shell_core = agents.iter().find(|a| a.id == "shell");
@@ -64,21 +76,36 @@ impl Agents {
         let shell_color = shell_core.map(color_of).unwrap_or(theme::SHELL);
         let shell_name = shell_label(shell_core.map(|a| a.label.as_str()));
 
+        let display_label = |a: &AgentInfo| match &a.local_model {
+            Some(m) if a.installed && !m.is_empty() => format!("{} · {m}", a.label),
+            _ => a.label.clone(),
+        };
+
         self.new_tab_menu = ai
             .iter()
             .map(|a| MenuItem {
                 kind: a.id.clone(),
-                label: if a.installed { a.label.clone() } else { t!("{agent} (not installed)", agent = a.label) },
+                label: if a.installed { display_label(a) } else { t!("{agent} (not installed)", agent = a.label) },
                 color: color_of(a),
             })
             .chain(std::iter::once(MenuItem { kind: "shell".into(), label: shell_name.clone(), color: shell_color }))
             .collect();
         self.empty_actions = ai
             .iter()
-            .map(|a| MenuItem { kind: a.id.clone(), label: t!("Open {agent}", agent = a.label), color: color_of(a) })
+            .map(|a| MenuItem { kind: a.id.clone(), label: t!("Open {agent}", agent = display_label(a)), color: color_of(a) })
             .chain(std::iter::once(MenuItem { kind: "shell".into(), label: t!("Open {agent}", agent = shell_name), color: shell_color }))
             .collect();
         self.loaded = true;
+    }
+
+    /// `true` when `kind` was manually added by the user (`Add CLI…`).
+    pub fn is_custom(&self, kind: &str) -> bool {
+        self.custom.contains(kind)
+    }
+
+    /// Local model detected for `kind` (`ollama list`, Mimo config, etc.).
+    pub fn local_model(&self, kind: &str) -> Option<String> {
+        self.local_models.get(kind).cloned()
     }
 
     /// `COLORS[kind]`.
@@ -132,7 +159,7 @@ mod tests {
     use super::*;
 
     fn agent(id: &str, label: &str, installed: bool, peer: bool) -> AgentInfo {
-        AgentInfo { id: id.into(), label: label.into(), color: "#d97757".into(), installed, peer }
+        AgentInfo { id: id.into(), label: label.into(), color: "#d97757".into(), installed, peer, ..Default::default() }
     }
 
     #[test]
@@ -142,14 +169,38 @@ mod tests {
             agent("claude", "Claude", false, true),
             agent("codex", "Codex", false, true),
             agent("opencode", "OpenCode", true, true),
+            AgentInfo {
+                id: "ollama".into(),
+                label: "Ollama".into(),
+                color: "#38bdf8".into(),
+                installed: true,
+                peer: true,
+                local_model: Some("qwen2.5-coder:7b".into()),
+                ..Default::default()
+            },
+            AgentInfo {
+                id: "my-cli".into(),
+                label: "My CLI".into(),
+                color: "#a3e635".into(),
+                installed: true,
+                peer: true,
+                custom: true,
+                command: Some("my-cli --chat".into()),
+                local_model: None,
+            },
             agent("shell", "Terminal", true, false),
         ]);
         let kinds: Vec<&str> = a.new_tab_menu.iter().map(|m| m.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["claude", "opencode", "shell"]);
+        assert_eq!(kinds, vec!["claude", "opencode", "ollama", "my-cli", "shell"]);
         assert_eq!(a.new_tab_menu[0].label, "Claude (not installed)");
+        assert_eq!(a.new_tab_menu[2].label, "Ollama · qwen2.5-coder:7b");
         assert_eq!(a.empty_actions[0].label, "Open Claude");
-        assert!(a.knows("opencode") && !a.knows("ollama"));
+        assert_eq!(a.empty_actions[2].label, "Open Ollama · qwen2.5-coder:7b");
+        assert!(a.knows("opencode") && a.knows("ollama") && a.knows("my-cli"));
+        assert!(a.is_custom("my-cli") && !a.is_custom("ollama"));
+        assert_eq!(a.local_model("ollama").as_deref(), Some("qwen2.5-coder:7b"));
         assert_eq!(a.name("opencode"), "OpenCode");
+        assert_eq!(a.name("my-cli"), "My CLI");
         assert_eq!(a.name("unknown"), "unknown");
         assert_eq!(a.fallback_kind(), "claude");
     }

@@ -52,8 +52,10 @@ Bridge instructions (use of `ask-agent`, prohibition of CLI-internal subagents w
 | Aider | `--read data/holt-instructions.md` |
 | Open Interpreter | `--custom_instructions <text>` |
 | Antigravity | `--add-dir data/agy/<instance>` (where the app writes an `AGENTS.md` with instance name and role, combined with project's by `agy`) |
-| Goose, Copilot | read only the folder's `AGENTS.md`: if missing, the app creates one with only the `<!-- holt:start/end -->` block and shows a notification; if already present, updates only the block |
+| Goose, Copilot, Ollama, Mimo Code, Crush, Cline, Amp, Droid, Continue, llama.cpp, Plandex, and custom CLIs (`Add CLI…`) | read the folder's `AGENTS.md`: if missing, the app creates one with only the `<!-- holt:start/end -->` block and shows a notification; if already present, updates only the block |
 | Amazon Q, Terminal | no instruction channel |
+
+The catalog in `crates/core/src/agents.rs` covers 20 AI CLIs (`claude`, `antigravity`, `codex`, `opencode`, `aider`, `goose`, `copilot`, `gemini`, `qwen`, `q`, `interpreter`, `ollama`, `mimo`, `crush`, `cline`, `amp`, `droid`, `cn`, `llama-cli`, `plandex`) plus `shell` (`Terminal`), and the user can add any command (`program + args`) via **Add CLI…**, persisted in `Config::custom_agents` (`config.json`) with an automatically generated `#rrggbb` color (`next_agent_color`) that never repeats any fixed or custom agent's color. For local CLIs (`ollama`, `mimo`, `llama-cli`, and custom CLIs with local models), `Registry` queries `ollama list`, Mimo config/CLI, or command flags (30 s cache) and surfaces `local_model` so the menu, tab pill, and sidebar always show `"<Agent> · <model>"`.
 
 The text in a shared file (`data/holt-instructions.md` and `AGENTS.md` block) does not list agents installed on the machine, so as not to dirty `git status` across computers.
 
