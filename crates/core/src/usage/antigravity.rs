@@ -1,8 +1,8 @@
 //! Antigravity usage: quota queried via internal Google Cloud Code API.
 //!
 //! # Source and Endpoints
-//! The Antigravity CLI (`agy`) uses the internal API `cloudcode-pa.googleapis.com`
-//! (with fallback to `daily-cloudcode-pa.googleapis.com`):
+//! The Antigravity CLI (`agy`) uses the internal API `daily-cloudcode-pa.googleapis.com`
+//! (with fallback to `cloudcode-pa.googleapis.com`):
 //! - `POST /v1internal:retrieveUserQuotaSummary`: main quota endpoint,
 //!   returns limits by group (e.g. "Gemini Models") divided into windows:
 //!   - `window: "5h"` (5-hour session limit);
@@ -37,8 +37,8 @@ use serde_json::{json, Value};
 use super::{epoch_ms, AgentUsage, UsageGroup, UsageWindow};
 use crate::util;
 
-/// Production and daily endpoint of the Cloud Code API.
-const API_HOSTS: &[&str] = &["cloudcode-pa.googleapis.com", "daily-cloudcode-pa.googleapis.com"];
+/// Daily (`agy`'s default) and production endpoints of the Cloud Code API.
+const API_HOSTS: &[&str] = &["daily-cloudcode-pa.googleapis.com", "cloudcode-pa.googleapis.com"];
 
 /// Timeout for HTTP quota requests.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -748,6 +748,11 @@ mod tests {
         let sources = credential_sources(home.path());
         assert!(sources.iter().any(|s| s == secret), "agy file without keyring is included in sources");
         assert_eq!(valid_access_token(home.path(), NOW).as_deref(), Some("ya29.disco"));
+    }
+
+    #[test]
+    fn api_hosts_queries_daily_cloudcode_first() {
+        assert_eq!(API_HOSTS, &["daily-cloudcode-pa.googleapis.com", "cloudcode-pa.googleapis.com"]);
     }
 
     #[test]
