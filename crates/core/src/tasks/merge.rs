@@ -269,7 +269,7 @@ impl Core {
                         // The reviewer already decided to merge: the agent is asked to resolve the conflict right now and
                         // the merge happens by itself when it delivers (`Core::task_done`).
                         let asks = if task.merge_approved { task.conflict_asks } else { 0 };
-                        if self.tab_delivery() && asks < MAX_CONFLICT_ASKS {
+                        if !task.manual && self.tab_delivery() && asks < MAX_CONFLICT_ASKS {
                             let ask = MergeBlock::Conflict(files.clone()).return_feedback(&task).unwrap_or_default();
                             if let Ok(back) = self.return_locked(project, &task, &ask, Some(asks + 1)) {
                                 let said = t!(

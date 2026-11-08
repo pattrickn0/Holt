@@ -7,7 +7,7 @@ use super::git_ops::{
 use super::text::{cap_text, short_list};
 use super::{
     boot_line, branch_name, changed_files, clean_title, conflict_fix, git_error, memory_block, return_message, start_message, MergeStop,
-    Task, TaskError, TaskSpec, TaskStatus, HOLT_DIR, MAX_OUTSIDE, MAX_TEXT,
+    Task, TaskError, TaskSpec, TaskStatus, HOLT_DIR, MANUAL_KIND, MAX_OUTSIDE, MAX_TEXT,
 };
 use crate::capability;
 use crate::events::{CoreEvent, Delivery, FeedEntry, Tone};
@@ -43,63 +43,76 @@ impl Core {
         let kinds = self.inner.agents.peers_with(&custom);
         let answering_kinds: Vec<String> = kinds.iter().filter(|k| crate::agents::can_answer_with(k, &custom)).cloned().collect();
 
-        // Agent: installed, with a tab (no `shell`) and without `@` (the role is the task id).
-        let automatic_choice = spec.kind.trim().is_empty();
+        // Agent: installed, with a tab (no `shell`) and without `@` (the role is the task id). A manual task has no
+        // agent: the creator works in the worktree and delivers the report itself (see [`Task::manual`]).
+        let manual = spec.manual;
+        if manual && (!spec.kind.trim().is_empty() || spec.model.as_deref().is_some_and(|m| !m.trim().is_empty()) || spec.effort.is_some())
+        {
+            return Err(TaskError::Invalid(
+                t!("a manual task has no agent: drop the agent, the model and the effort (--agent, --model, --effort)").into(),
+            ));
+        }
+        let automatic_choice = !manual && spec.kind.trim().is_empty();
         let selected =
             automatic_choice.then(|| capability::select(&self.capability_candidates(&answering_kinds, spec.effort), spec.level)).flatten();
-        let asked = match spec.kind.trim().to_lowercase() {
-            k if k.is_empty() => selected
-                .as_ref()
-                .map(|choice| choice.kind.clone())
-                .or_else(|| answering_kinds.iter().find(|kind| kind.as_str() == "claude").cloned())
-                .or_else(|| answering_kinds.first().cloned())
-                .or_else(|| kinds.first().cloned())
-                .unwrap_or_else(|| "claude".to_owned()),
-            k => k,
-        };
-        if asked.contains('@') {
-            return Err(TaskError::Invalid(t!(
-                "invalid agent \"{agent}\": give only the model (claude, antigravity…)",
-                agent = asked.escape_debug()
-            )));
-        }
-        let kind = crate::agents::resolve_alias(&asked).to_owned();
-        if !kinds.contains(&kind) || Ident::parse(&kind).is_none() {
-            return Err(TaskError::Invalid(t!(
-                "unknown or not installed agent \"{agent}\". Available: {available}",
-                agent = asked.escape_debug(),
-                available = kinds.join(", ")
-            )));
-        }
-        // Model: the requested one (validated) or the role's default; only for agents that let you choose.
-        let requested = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
-        if let Some(m) = requested {
-            if !models::valid_model(m) {
+        let (kind, model, effort) = if manual {
+            (MANUAL_KIND.to_owned(), None, None)
+        } else {
+            let asked = match spec.kind.trim().to_lowercase() {
+                k if k.is_empty() => selected
+                    .as_ref()
+                    .map(|choice| choice.kind.clone())
+                    .or_else(|| answering_kinds.iter().find(|kind| kind.as_str() == "claude").cloned())
+                    .or_else(|| answering_kinds.first().cloned())
+                    .or_else(|| kinds.first().cloned())
+                    .unwrap_or_else(|| "claude".to_owned()),
+                k => k,
+            };
+            if asked.contains('@') {
                 return Err(TaskError::Invalid(t!(
-                    "invalid model: \"{model}\"",
-                    model = m.chars().take(40).collect::<String>().escape_debug()
+                    "invalid agent \"{agent}\": give only the model (claude, antigravity…)",
+                    agent = asked.escape_debug()
                 )));
             }
-            if !models::accepts_model(&kind) {
-                return Err(TaskError::Invalid(t!("the agent {kind} does not accept choosing a model", kind = &kind)));
+            let kind = crate::agents::resolve_alias(&asked).to_owned();
+            if !kinds.contains(&kind) || Ident::parse(&kind).is_none() {
+                return Err(TaskError::Invalid(t!(
+                    "unknown or not installed agent \"{agent}\". Available: {available}",
+                    agent = asked.escape_debug(),
+                    available = kinds.join(", ")
+                )));
             }
-        }
-        // A task ends with the agent running `ask-agent --task done`: one that cannot run a command could never deliver it.
-        if !crate::agents::can_answer_with(&kind, &custom) {
-            return Err(TaskError::Invalid(t!(
-                "the agent {kind} cannot run shell commands, so it could never deliver a task with ask-agent --task done; choose another agent",
-                kind = &kind
-            )));
-        }
-        let model = models::resolve_model(&Ident::main(&kind), requested, None, &self.config().role_models);
-        // Effort: only where the CLI accepts it. In Antigravity it changes the model suffix, so the saved model
-        // is already the one that will open.
-        let (model, effort) = match spec.effort {
-            Some(e) => match models::effort_unavailable(&kind, model.as_deref()) {
-                Some(why) => return Err(TaskError::Invalid(t!("effort not applicable to {kind}: {why}", kind = &kind, why))),
-                None => (model.map(|m| models::effort_model(&kind, &m, e)), Some(e)),
-            },
-            None => (model, None),
+            // Model: the requested one (validated) or the role's default; only for agents that let you choose.
+            let requested = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
+            if let Some(m) = requested {
+                if !models::valid_model(m) {
+                    return Err(TaskError::Invalid(t!(
+                        "invalid model: \"{model}\"",
+                        model = m.chars().take(40).collect::<String>().escape_debug()
+                    )));
+                }
+                if !models::accepts_model(&kind) {
+                    return Err(TaskError::Invalid(t!("the agent {kind} does not accept choosing a model", kind = &kind)));
+                }
+            }
+            // A task ends with the agent running `ask-agent --task done`: one that cannot run a command could never deliver it.
+            if !crate::agents::can_answer_with(&kind, &custom) {
+                return Err(TaskError::Invalid(t!(
+                    "the agent {kind} cannot run shell commands, so it could never deliver a task with ask-agent --task done; choose another agent",
+                    kind = &kind
+                )));
+            }
+            let model = models::resolve_model(&Ident::main(&kind), requested, None, &self.config().role_models);
+            // Effort: only where the CLI accepts it. In Antigravity it changes the model suffix, so the saved model
+            // is already the one that will open.
+            let (model, effort) = match spec.effort {
+                Some(e) => match models::effort_unavailable(&kind, model.as_deref()) {
+                    Some(why) => return Err(TaskError::Invalid(t!("effort not applicable to {kind}: {why}", kind = &kind, why))),
+                    None => (model.map(|m| models::effort_model(&kind, &m, e)), Some(e)),
+                },
+                None => (model, None),
+            };
+            (kind, model, effort)
         };
 
         // Repository and base.
@@ -122,9 +135,13 @@ impl Core {
 
         let number = self.with_tasks(project, false, |p| p.next.max(1));
         let id = format!("t{number}");
-        let instance = Ident::parse(&format!("{kind}@{id}"))
-            .map(|i| i.id())
-            .ok_or_else(|| TaskError::Invalid(t!("agent \"{kind}\" cannot have a task instance", kind = &kind)))?;
+        let instance = if manual {
+            String::new()
+        } else {
+            Ident::parse(&format!("{kind}@{id}"))
+                .map(|i| i.id())
+                .ok_or_else(|| TaskError::Invalid(t!("agent \"{kind}\" cannot have a task instance", kind = &kind)))?
+        };
         let mut task = Task {
             branch: branch_name(&id, &title),
             worktree: util::absolutize(&repo.root.join(HOLT_DIR).join("worktrees").join(&id)),
@@ -139,6 +156,7 @@ impl Core {
             model,
             effort,
             instance,
+            manual,
             creator: spec.creator.map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()),
             created_ms: now_ms(),
             ..Task::default()
@@ -147,7 +165,9 @@ impl Core {
             Some(c) => t!("created by {creator}", creator = c),
             None => t!("created").to_owned(),
         });
-        if automatic_choice {
+        if manual {
+            task.log(t!("manual task: no agent; the creator works in the worktree and delivers the report"));
+        } else if automatic_choice {
             if let Some(choice) = selected {
                 task.log(t!("agent chosen automatically by capacity and quota: {reason}", reason = choice.reason));
                 if let Some(warning) = choice.warning {
@@ -227,7 +247,7 @@ impl Core {
                 status = task.status.label()
             )));
         }
-        if !self.tab_delivery() {
+        if !task.manual && !self.tab_delivery() {
             return Err(TaskError::Conflict(
                 t!("tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings (in headless mode there is no tab or worktree per agent)").into(),
             ));
@@ -268,6 +288,14 @@ impl Core {
             t.clone()
         });
         let Some(task) = started else { return Err(TaskError::NotFound(t!("task {id} vanished", id))) };
+        if task.manual {
+            self.feed(
+                FeedEntry::system(t!("Task {id} started (manual): {title}", id = &task.id, title = &task.title))
+                    .about_task(&task.id)
+                    .in_project(project),
+            );
+            return Ok(task);
+        }
         let ident = self.open_task_instance(project, &task);
         let boss = self.task_boss(project, &task);
         let prompt = start_message(&task, boss.as_deref(), &self.task_memory(project, &task));
@@ -689,7 +717,7 @@ impl Core {
         if feedback.is_empty() {
             return Err(TaskError::Invalid(t!("the feedback is empty: say what needs to change").into()));
         }
-        if !self.tab_delivery() {
+        if !task.manual && !self.tab_delivery() {
             return Err(TaskError::Conflict(t!("tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings").into()));
         }
         self.return_locked(project, &task, feedback, None)
@@ -709,6 +737,8 @@ impl Core {
             t.merge_stopped = None;
             t.log(if auto.is_some() {
                 t!("conflict with {base}; asked the agent to resolve it (the merge is already approved)", base = &t.base)
+            } else if t.manual {
+                t!("returned with feedback (manual task)").to_owned()
             } else {
                 t!("returned to the agent with feedback").to_owned()
             });
@@ -718,6 +748,10 @@ impl Core {
             (before, t.clone())
         });
         let (before, task) = updated.ok_or_else(|| TaskError::NotFound(t!("task {id} vanished", id = &task.id)))?;
+        // A manual task has no agent: the feedback stays in the task for whoever is working it.
+        if task.manual {
+            return Ok(task);
+        }
         let ident = self.open_task_instance(project, &task);
         let prompt = return_message(&before, &feedback, &self.feedback_learnings(&before, &feedback));
         let boot = self.task_boot_prompt(project, &task, "feedback", "was returned in review with changes, described in the file", &prompt);

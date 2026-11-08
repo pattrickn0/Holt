@@ -113,7 +113,7 @@ Inside a task, every exchange appears in the task's **timeline**; system notices
   (`Ctrl+S` preserving CRLF/LF and BOM, with confirmation on close without saving and notification if disk changes externally); up to 1 MB
   open read-only. Diffs feature a file list on the left, highlighting, search, and copy of code only; `.md`, Brief, and
   Report open formatted.
-- **Tasks tab:** each task runs in an agent with its own branch and worktree (`.holt/worktrees/tN`). Lifecycle:
+- **Tasks tab:** each task runs in an agent with its own branch and worktree (`.holt/worktrees/tN`), except a **manual task** (created with `--manual`), which has no agent tab: whoever created it works in the worktree and delivers the report. Lifecycle:
   *Running* → (`--task done`) *In review* → (merge) *Waiting for validation* (tab, worktree, and branch remain alive
   to test the app) → (validate) *Completed*; *Reject* returns it to the same agent. The **+ New** form takes title,
   brief, **level** (*Simple*, *Medium*, *Complex*), agent/model (recommended by capability + quota headroom), effort,
@@ -194,7 +194,7 @@ of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
 | `ask-agent --outline <file>...` | shows the outline of each file (signatures and line numbers, without bodies, in Rust and Markdown) to read only the necessary snippet with offset |
 | `ask-agent --inbox [--all]` | shows replies to your questions that have not yet been delivered (or the last 20 with `--all`), marking them as delivered, and lists your unread mail |
 | `ask-agent --read <n>` | prints mail #n and marks it read. A long or multi-line message (and a long late answer) is not typed into the terminal: only a one-line notice `[mail #n from …]` is, and the text is saved in `data/mail/`. Only the addressee can read it |
-| `ask-agent --task new "title" [--agent <m>] [--model <m>] [--effort low\|medium\|high] [--level simple\|medium\|complex] [--base <branch>] [--start] -\|"brief"\|--file <file> [--scope <path>…]` | creates a task (dedicated worktree + branch + agent; without `--agent`, chooses the one with the most quota headroom among capable models for the level); `--start` starts it immediately (or queues it if `--scope` overlaps another running/in-review task) |
+| `ask-agent --task new "title" [--agent <m>] [--model <m>] [--effort low\|medium\|high] [--level simple\|medium\|complex] [--base <branch>] [--start] [--manual] -\|"brief"\|--file <file> [--scope <path>…]` | creates a task (dedicated worktree + branch + agent; without `--agent`, chooses the one with the most quota headroom among capable models for the level); `--start` starts it immediately (or queues it if `--scope` overlaps another running/in-review task); `--manual` creates a task with no agent, worked and delivered by whoever created it (`kind`, `model` and `effort` are refused with it) |
 | `ask-agent --task list` / `show <id>` | lists project tasks / shows full detail of a task |
 | `ask-agent --task start <id>` / `merge <id>` / `validate <id>` / `discard <id>` | starts draft / merges task in review into base (`--no-ff`, moving to waiting for validation) / finishes validation and cleans up / discards and cleans up |
 | `ask-agent --task done <id> -\|"report"\|--file <file>` | task agent submits report and puts it in review (also valid in validation if new commits exist) |

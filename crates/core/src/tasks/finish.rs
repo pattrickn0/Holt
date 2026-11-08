@@ -115,7 +115,7 @@ impl Core {
         if feedback.is_empty() {
             return Err(TaskError::Invalid(t!("the reason is empty: say what did not work in the test").into()));
         }
-        if !self.tab_delivery() {
+        if !task.manual && !self.tab_delivery() {
             return Err(TaskError::Conflict(t!("tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings").into()));
         }
         let feedback = cap_text(feedback, MAX_TEXT);
@@ -128,7 +128,11 @@ impl Core {
         let updated = self.update_task(project, &task.id, |t| {
             t.status = TaskStatus::Running;
             t.finished_ms = None;
-            t.log(t!("rejected in validation; returned to the agent with the reason"));
+            t.log(if t.manual {
+                t!("rejected in validation; returned with the reason (manual task)")
+            } else {
+                t!("rejected in validation; returned to the agent with the reason")
+            });
             if let Err(e) = &aligned {
                 t.log(t!(
                     "warning: could not align the branch {branch} with {base}: {error}",
@@ -148,6 +152,10 @@ impl Core {
             self.update_task(project, &task.id, |t| {
                 t.log(t!("warning: the scope overlaps that of {other}, which is in progress; the next merge may conflict", other = &other))
             });
+        }
+        // A manual task has no agent: the reason stays in the task for whoever is working it.
+        if task.manual {
+            return Ok(task);
         }
         let ident = self.open_task_instance(project, &task);
         let prompt = reject_message(&before, &feedback, aligned.is_ok(), &self.feedback_learnings(&before, &feedback));

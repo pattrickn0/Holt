@@ -186,6 +186,7 @@ impl Deck {
             effort: f.effort.filter(|_| models::effort_unavailable(&f.kind, f.model.as_deref()).is_none()),
             base: Some(f.base.trim().to_owned()).filter(|b| !b.is_empty()),
             creator: None,
+            manual: false,
             scope: parse_scope(&f.scope),
         };
         let start_now = f.start_now;

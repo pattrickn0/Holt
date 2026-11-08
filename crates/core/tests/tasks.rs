@@ -1689,3 +1689,96 @@ fn what_the_user_reads_follows_the_language_and_what_the_agent_reads_stays_engli
     }
     core.shutdown();
 }
+
+#[test]
+fn a_manual_task_needs_no_agent_and_the_creator_delivers_the_report() {
+    need_git!();
+    // Agent tabs off: a manual task still starts, with no tab and no brief.
+    let env = start_with(false, true);
+    let core = &env.core;
+    let manual = || TaskSpec {
+        title: "Write the docs".into(),
+        brief: "Update the docs.".into(),
+        manual: true,
+        creator: Some("shell".into()),
+        ..TaskSpec::default()
+    };
+    let t = core.task_create(&env.project, manual()).expect("create");
+    assert!(t.manual);
+    assert_eq!((t.kind.as_str(), t.instance.as_str(), t.model.as_deref()), ("manual", "", None));
+    assert_eq!(t.creator.as_deref(), Some("shell"));
+    assert!(!t.worktree.exists());
+    // A manual task takes no agent, model or effort.
+    let with_agent = TaskSpec { kind: "claude".into(), ..manual() };
+    assert!(matches!(core.task_create(&env.project, with_agent), Err(TaskError::Invalid(_))));
+    let with_model = TaskSpec { model: Some("opus".into()), ..manual() };
+    assert!(matches!(core.task_create(&env.project, with_model), Err(TaskError::Invalid(_))));
+
+    events(&env);
+    let t = core.task_start(&env.project, &t.id).expect("start without tabs");
+    assert_eq!(t.status, TaskStatus::Running);
+    assert!(t.worktree.join("a.txt").is_file() && branches(&env.ws).contains(&t.branch));
+    let evs = events(&env);
+    assert!(deliveries(&evs).is_empty(), "no brief to deliver: {:?}", deliveries(&evs));
+    assert!(core.project_instance_ids(&env.project).is_empty(), "no tab instance for a manual task");
+    assert!(evs.iter().any(|e| matches!(e, CoreEvent::Feed(f) if f.text.contains("started (manual)"))), "{evs:?}");
+
+    // The creator works in the worktree and commits; the report goes to review as any other.
+    std::fs::write(t.worktree.join("docs.txt"), "manual\n").expect("w");
+    git(&t.worktree, &["add", "-A"]);
+    git(&t.worktree, &["commit", "-q", "-m", "docs"]);
+    let t = core.task_done(&env.project, &t.id, "Wrote the docs.").expect("done");
+    assert_eq!(t.status, TaskStatus::Review);
+    assert_eq!(t.report.as_deref(), Some("Wrote the docs."));
+    let t = core.task_merge(&env.project, &t.id).expect("merge");
+    assert_eq!(t.status, TaskStatus::Validating);
+    let t = core.task_validate(&env.project, &t.id).expect("validate");
+    assert_eq!(t.status, TaskStatus::Merged);
+    assert!(!t.worktree.exists());
+    core.shutdown();
+}
+
+#[test]
+fn returning_and_rejecting_a_manual_task_keeps_the_feedback_without_a_tab() {
+    need_git!();
+    let env = start_with(false, true);
+    let core = &env.core;
+    let t = core
+        .task_create(
+            &env.project,
+            TaskSpec {
+                title: "Write the docs".into(),
+                brief: "Update the docs.".into(),
+                manual: true,
+                creator: Some("shell".into()),
+                ..TaskSpec::default()
+            },
+        )
+        .expect("create");
+    let t = core.task_start(&env.project, &t.id).expect("start");
+    std::fs::write(t.worktree.join("docs.txt"), "manual\n").expect("w");
+    git(&t.worktree, &["add", "-A"]);
+    git(&t.worktree, &["commit", "-q", "-m", "docs"]);
+    core.task_done(&env.project, &t.id, "First try.").expect("done");
+
+    events(&env);
+    let t = core.task_return(&env.project, &t.id, "The intro is missing.").expect("return without tabs");
+    assert_eq!(t.status, TaskStatus::Running);
+    assert_eq!(t.feedbacks.last().map(|f| f.text.as_str()), Some("The intro is missing."));
+    assert!(deliveries(&events(&env)).is_empty(), "no tab to deliver the feedback to");
+    assert!(core.project_instance_ids(&env.project).is_empty());
+
+    // After the merge, a rejection keeps the reason in the task too (no tab is reopened).
+    std::fs::write(t.worktree.join("docs.txt"), "manual with an intro\n").expect("w");
+    git(&t.worktree, &["add", "-A"]);
+    git(&t.worktree, &["commit", "-q", "-m", "intro"]);
+    core.task_done(&env.project, &t.id, "Now with the intro.").expect("done 2");
+    core.task_merge(&env.project, &t.id).expect("merge");
+    events(&env);
+    let t = core.task_reject(&env.project, &t.id, "The test does not pass.").expect("reject without tabs");
+    assert_eq!(t.status, TaskStatus::Running);
+    assert_eq!(t.feedbacks.last().map(|f| f.text.as_str()), Some("The test does not pass."));
+    assert!(deliveries(&events(&env)).is_empty());
+    assert!(core.project_instance_ids(&env.project).is_empty());
+    core.shutdown();
+}

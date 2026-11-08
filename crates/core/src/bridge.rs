@@ -1148,14 +1148,28 @@ fn parse_task_route(method: &Method, url: &str) -> Result<TaskRoute, (u16, Strin
 /// Who may do what. A task's agent (`own` = its id) only reads and delivers the report of its own task;
 /// any other agent does the rest, except delivering a task's report. The master token (tests and
 /// debugging; no agent receives it) may do everything.
-fn task_permission(action: TaskAction, target: Option<&str>, master: bool, own: Option<&str>) -> Result<(), String> {
+fn task_permission(
+    action: TaskAction,
+    target: Option<&str>,
+    master: bool,
+    own: Option<&str>,
+    manual_creator: Option<&str>,
+    caller: &str,
+) -> Result<(), String> {
     if master {
         return Ok(());
     }
     match (action, own) {
         (TaskAction::List | TaskAction::Show, _) => Ok(()),
         (TaskAction::Done, Some(own)) if target == Some(own) => Ok(()),
-        (TaskAction::Done, _) => Err("only a task's own agent delivers the report (ask-agent --task done)".into()),
+        // A manual task has no agent: whoever created it works in the worktree and delivers the report.
+        (TaskAction::Done, None) if manual_creator == Some(caller) => Ok(()),
+        (TaskAction::Done, _) => Err(match manual_creator {
+            Some(creator) => {
+                format!("only the creator of manual task {} ({creator}) delivers the report (ask-agent --task done)", target.unwrap_or(""))
+            }
+            None => "only a task's own agent delivers the report (ask-agent --task done)".into(),
+        }),
         (_, Some(_)) => Err("the agent of a task only reads tasks and delivers the report of its own (ask-agent --task done)".into()),
         (_, None) => Ok(()),
     }
@@ -1188,7 +1202,11 @@ fn tasks_route(core: &Core, mut req: Request, auth: &Auth, bodies: &Arc<AtomicU6
         Err(e) => return reply(req, 400, json!({ "error": e })),
     };
     let own = core.task_of_instance(&caller.project, &caller.id).map(|t| t.id);
-    if let Err(e) = task_permission(action, id.as_deref(), matches!(auth, Auth::Master), own.as_deref()) {
+    // The creator of a manual task delivers its report; a manual task has no agent of its own.
+    let manual_creator = id.as_deref().and_then(|t| core.task(&caller.project, t)).filter(|t| t.manual).and_then(|t| t.creator);
+    if let Err(e) =
+        task_permission(action, id.as_deref(), matches!(auth, Auth::Master), own.as_deref(), manual_creator.as_deref(), &caller.id)
+    {
         return reply(req, 403, json!({ "error": e }));
     }
     let (status, out) = run_task_action(core, &caller, action, id.as_deref(), &msg);
@@ -1222,6 +1240,11 @@ fn body_scope(msg: &Value) -> Result<Vec<String>, (u16, Value)> {
 
 /// The fields of `POST /tasks`.
 fn task_spec(msg: &Value, creator: &str) -> Result<crate::tasks::TaskSpec, (u16, Value)> {
+    let manual = match msg.get("manual") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err((400, json!({ "error": "\"manual\" must be true or false" }))),
+    };
     let effort = match body_text(msg, "effort")? {
         None => None,
         Some(e) => match crate::models::Effort::parse(&e) {
@@ -1247,6 +1270,7 @@ fn task_spec(msg: &Value, creator: &str) -> Result<crate::tasks::TaskSpec, (u16,
     Ok(crate::tasks::TaskSpec {
         effort,
         level,
+        manual,
         title: body_text(msg, "title")?.unwrap_or_default(),
         brief: body_text(msg, "brief")?.unwrap_or_default(),
         kind: body_text(msg, "kind")?.unwrap_or_default(),
@@ -1432,7 +1456,7 @@ mod tests {
             (Reject, Some("t1"), false),
             (Discard, Some("t1"), false),
         ] {
-            assert_eq!(task_permission(action, target, false, Some("t1")).is_ok(), ok, "{action:?} {target:?}");
+            assert_eq!(task_permission(action, target, false, Some("t1"), None, "claude@t1").is_ok(), ok, "{action:?} {target:?}");
         }
         // Any other agent does the rest, except delivering a report.
         for (action, ok) in [
@@ -1446,10 +1470,28 @@ mod tests {
             (Discard, true),
             (Done, false),
         ] {
-            assert_eq!(task_permission(action, Some("t1"), false, None).is_ok(), ok, "{action:?}");
+            assert_eq!(task_permission(action, Some("t1"), false, None, None, "claude").is_ok(), ok, "{action:?}");
         }
         // The master token may do everything.
-        assert!(task_permission(Done, Some("t1"), true, None).is_ok() && task_permission(Merge, Some("t1"), true, Some("t1")).is_ok());
+        assert!(
+            task_permission(Done, Some("t1"), true, None, None, "claude").is_ok()
+                && task_permission(Merge, Some("t1"), true, Some("t1"), None, "claude@t1").is_ok()
+        );
+    }
+
+    #[test]
+    fn the_creator_of_a_manual_task_delivers_the_report() {
+        use TaskAction::*;
+        // The creator is not a task agent (own = None) and delivers.
+        assert!(task_permission(Done, Some("t1"), false, None, Some("shell"), "shell").is_ok());
+        // Another agent (or one that owns a task) does not.
+        assert!(task_permission(Done, Some("t1"), false, None, Some("shell"), "claude").is_err());
+        assert!(task_permission(Done, Some("t1"), false, Some("t2"), Some("shell"), "claude@t2").is_err());
+        // The rest keeps working for anyone.
+        assert!(task_permission(Merge, Some("t1"), false, None, Some("shell"), "claude").is_ok());
+        // And the error says who delivers it.
+        let err = task_permission(Done, Some("t1"), false, None, Some("shell"), "claude").unwrap_err();
+        assert!(err.contains("shell"), "{err}");
     }
 
     #[test]

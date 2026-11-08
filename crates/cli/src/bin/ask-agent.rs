@@ -15,7 +15,8 @@
 //!      ask-agent --outline <file>...   (each file's signatures with the line, without the bodies)
 //!      ask-agent --inbox [--all]          (answers to your questions and mail not read yet; --all: the last 20)
 //!      ask-agent --read <n>               (the full text of mail #n, a long message that was not typed into your terminal)
-//!      ask-agent --task new "title" [--agent <model>] [--model <m>] [--effort low|medium|high] [--level simple|medium|complex] [--base <branch>] [--start] -|"request"|--file <file> [--scope <path>...]
+//!      ask-agent --task new "title" [--agent <model>] [--model <m>] [--effort low|medium|high] [--level simple|medium|complex] [--base <branch>] [--start] [--manual] -|"request"|--file <file> [--scope <path>...]
+//!          (--manual: a task with no agent, worked and delivered by whoever created it)
 //!      ask-agent --task list | show <id> | start <id> | merge <id> | validate <id> | discard <id>
 //!      ask-agent --task done <id> -|"report"|--file <file>   (only the agent of the task itself)
 //!      ask-agent --task return <id> "feedback"|--file <file>   (sends a task under review back)
@@ -715,7 +716,7 @@ const TASK_USAGE: &str = "\
 Usage:
   ask-agent --task new \"title\" [--agent <model>] [--model <m>]
                           [--effort low|medium|high] [--level simple|medium|complex]
-                          [--base <branch>] [--start]
+                          [--base <branch>] [--start] [--manual]
                           \"request\"|--file <file>|-
                           [--scope <path> [<path>...]]
   ask-agent --task list
@@ -725,6 +726,7 @@ Usage:
   ask-agent --task return|reject <id> \"feedback\"|--file <file>|-
 
 Options:
+  --manual          Task with no agent (worked and delivered by creator).
   --scope <paths>   Paths (relative to repo root) the task touches. Overlapping
                     tasks wait in queue and start automatically.
   --start           Starts the task right away after creating it.
@@ -757,6 +759,7 @@ enum TaskCmd {
         level: Option<String>,
         base: Option<String>,
         start: bool,
+        manual: bool,
         scope: Vec<String>,
     },
     List,
@@ -843,7 +846,8 @@ fn parse_task(args: &[String]) -> Result<TaskCmd, String> {
         "return" => Ok(TaskCmd::Return { id: task_id(rest.first())?, feedback: body_of(&rest[1..])? }),
         "reject" => Ok(TaskCmd::Reject { id: task_id(rest.first())?, feedback: body_of(&rest[1..])? }),
         "new" => {
-            let (mut agent, mut model, mut effort, mut level, mut base, mut start) = (None, None, None, None, None, false);
+            let (mut agent, mut model, mut effort, mut level, mut base, mut start, mut manual) =
+                (None, None, None, None, None, false, false);
             let mut brief_file: Option<String> = None;
             let mut scope: Vec<String> = Vec::new();
             let mut words: Vec<String> = Vec::new();
@@ -872,6 +876,7 @@ fn parse_task(args: &[String]) -> Result<TaskCmd, String> {
                 };
                 match a.as_str() {
                     "--start" => start = true,
+                    "--manual" => manual = true,
                     "--agent" => agent = Some(value("--agent", None)?),
                     "--model" => model = Some(value("--model", None)?),
                     "--effort" => effort = Some(value("--effort", None)?),
@@ -896,7 +901,7 @@ fn parse_task(args: &[String]) -> Result<TaskCmd, String> {
                 Some(path) => Body::File(path),
                 None => body_of(&words)?,
             };
-            Ok(TaskCmd::New { title, brief, agent, model, effort, level, base, start, scope })
+            Ok(TaskCmd::New { title, brief, agent, model, effort, level, base, start, manual, scope })
         }
         other => Err(format!("unknown --task subcommand: {other}")),
     }
@@ -1063,21 +1068,26 @@ fn task_command(bridge: &Bridge, args: &[String]) -> ExitCode {
             Ok(f) => ("POST", format!("/tasks/{id}/reject"), Some(json!({ "feedback": f }))),
             Err(e) => return fail(e, 2),
         },
-        TaskCmd::New { title, brief, agent, model, effort, level, base, start, scope } => match read_body(brief, "the task request") {
-            Ok(b) => {
-                let mut body = json!({ "title": title, "brief": b, "start": start });
-                if !scope.is_empty() {
-                    body["scope"] = json!(scope);
-                }
-                for (key, value) in [("kind", agent), ("model", model), ("effort", effort), ("level", level), ("base", base)] {
-                    if let Some(v) = value {
-                        body[key] = json!(v);
+        TaskCmd::New { title, brief, agent, model, effort, level, base, start, manual, scope } => {
+            match read_body(brief, "the task request") {
+                Ok(b) => {
+                    let mut body = json!({ "title": title, "brief": b, "start": start });
+                    if !scope.is_empty() {
+                        body["scope"] = json!(scope);
                     }
+                    if manual {
+                        body["manual"] = json!(true);
+                    }
+                    for (key, value) in [("kind", agent), ("model", model), ("effort", effort), ("level", level), ("base", base)] {
+                        if let Some(v) = value {
+                            body[key] = json!(v);
+                        }
+                    }
+                    ("POST", "/tasks".to_owned(), Some(body))
                 }
-                ("POST", "/tasks".to_owned(), Some(body))
+                Err(e) => return fail(e, 2),
             }
-            Err(e) => return fail(e, 2),
-        },
+        }
     };
     let new = route == "/tasks" && method == "POST";
     let verb = route.rsplit('/').next().unwrap_or("").to_owned();
@@ -1406,6 +1416,7 @@ ready"
             level: None,
             base: base.map(String::from),
             start,
+            manual: false,
             scope: Vec::new(),
         };
         assert_eq!(task(&["new", "Fix login", "-"]), Ok(new("Fix login", Body::Stdin, None, None, None, false)));
@@ -1626,5 +1637,22 @@ ready"
         // The exhausted note, in either language, counts as full.
         assert_eq!(quota_used_from_note("Gemini 4 Argon ESGOTADA (renova em 9 h)"), Some(1.0));
         assert_eq!(quota_used_from_note("Gemini 4 Argon EXHAUSTED (renews in 9 h)"), Some(1.0));
+    }
+
+    #[test]
+    fn a_task_can_be_created_without_an_agent() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        match parse_task(&args(&["new", "Docs", "--manual", "--start", "go"])).expect("parse") {
+            TaskCmd::New { manual, start, agent, model, effort, .. } => {
+                assert!(manual && start);
+                assert!(agent.is_none() && model.is_none() && effort.is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+        // Without the flag it stays an agent task.
+        match parse_task(&args(&["new", "Docs", "go"])).expect("parse") {
+            TaskCmd::New { manual, .. } => assert!(!manual),
+            other => panic!("{other:?}"),
+        }
     }
 }

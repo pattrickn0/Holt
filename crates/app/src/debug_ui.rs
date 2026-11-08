@@ -320,7 +320,8 @@ pub(crate) fn apply(deck: &mut Deck) {
             | "tasks-new-agent"
             | "tasks-new-model"
             | "tasks-new-provider"
-            | "tasks-new-provider-models" => debug_tasks(deck, item),
+            | "tasks-new-provider-models"
+            | "tasks-manual" => debug_tasks(deck, item),
             "docs-demo"
             | "docs-demo-file"
             | "docs-demo-md"
@@ -470,6 +471,19 @@ fn debug_tasks(deck: &mut Deck, item: &str) {
         "tasks-discard" => {
             deck.tasks.view = detail("t6");
             deck.tasks.confirm = Some(Confirm::Discard("t6".into()));
+        }
+        "tasks-manual" => {
+            // Two tasks worked by the orchestrator, with no agent tab.
+            for task in &mut deck.tasks.tasks {
+                if matches!(task.id.as_str(), "t4" | "t6") {
+                    task.manual = true;
+                    task.kind = holt_core::tasks::MANUAL_KIND.to_owned();
+                    task.instance.clear();
+                    task.model = None;
+                    task.effort = None;
+                }
+            }
+            deck.tasks.view = detail("t4");
         }
         "tasks-running" => deck.tasks.view = detail("t6"),
         "tasks-conflict" => deck.tasks.view = detail("t10"),

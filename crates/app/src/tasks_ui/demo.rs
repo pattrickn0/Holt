@@ -329,6 +329,20 @@ mod tests {
     }
 
     #[test]
+    fn a_manual_task_has_no_tab_buttons() {
+        let m = |status| Task { status, base: "dev".into(), manual: true, kind: "manual".into(), ..Task::default() };
+        // No agent tab to go to or reopen, but the desk's moves stay.
+        assert_eq!(actions_for(&m(TaskStatus::Draft), true), [TaskAct::Start, TaskAct::Discard]);
+        assert_eq!(actions_for(&m(TaskStatus::Running), true), [TaskAct::Discard]);
+        assert_eq!(actions_for(&m(TaskStatus::Review), true), [TaskAct::Merge, TaskAct::Return, TaskAct::Discard]);
+        assert_eq!(actions_for(&m(TaskStatus::Validating), false), [TaskAct::Validate, TaskAct::Reject, TaskAct::Discard]);
+        assert_eq!(actions_for(&m(TaskStatus::Failed), false), [TaskAct::Retry, TaskAct::Discard]);
+        // The same task with an agent gets the tab action back.
+        let agent = Task { status: TaskStatus::Review, base: "dev".into(), ..Task::default() };
+        assert!(actions_for(&agent, true).contains(&TaskAct::GoToTab));
+    }
+
+    #[test]
     fn destructive_actions_ask_first() {
         let review = Task { status: TaskStatus::Review, report: Some("x".into()), ..Task::default() };
         assert!(TaskAct::Discard.needs_confirm(&review) && TaskAct::Merge.needs_confirm(&review));

@@ -160,7 +160,9 @@ to the system font.
   lines) with the wait on the right (`age_short`, 10.5 px `text_3`), then the state word (11 px 600 in `mark_color`: accent
   for what needs you, `warning`, `danger_text`, `text_2`), the agent's 12 px logo + model tag · effort (plus the tab's
   phase or idle time in `meta(10)` `text_3` in AGENTS WORKING when the tab is open), the id (`meta`) and
-  `+N −M` right-aligned (`paint_diff_counts`, `success`/`danger_text`). NEEDS YOU rows have a 3.5 % white fill and their
+  `+N −M` right-aligned (`paint_diff_counts`, `success`/`danger_text`). A **manual task** (no agent tab) shows a plain
+  `Manual` marker (11 px 600, `text_2`) where the logo and model go, and its rows and detail carry no tab action.
+  NEEDS YOU rows have a 3.5 % white fill and their
   24 px actions: the main move (primary) and at most one ghost (the diff); what needs typing stays in the detail; only the first one gets `accent_wash` + `accent_edge`. FINISHED rows are 24 px.
   The fixed `+ New task` footer stays.
 - Task detail: header (← · id in `meta` · title · ⋯ menu), title 15 px 600, the state sentence with its glyph, agent and
