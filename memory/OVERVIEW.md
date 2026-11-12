@@ -146,7 +146,7 @@ Inside a task, every exchange appears in the task's **timeline**; system notices
 | Prompt for a `.cmd` shim on Windows | passed via file, never on command line |
 | File opened in Documents mode | up to 1 MB (editable up to 256 KB / 4,000-byte lines), no null bytes |
 
-When "Open agent tabs" is turned off in Settings, `ask-agent` runs agents in **headless mode**
+When "Run agents in tabs" is turned off in Settings, `ask-agent` runs agents in **headless mode**
 (`claude -p`, `agy -p`, `codex exec`, `opencode run`…) with a temporary token (tasks require tabs turned on). The full HTTP contract
 of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
 

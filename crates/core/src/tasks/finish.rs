@@ -116,7 +116,7 @@ impl Core {
             return Err(TaskError::Invalid(t!("the reason is empty: say what did not work in the test").into()));
         }
         if !task.manual && !self.tab_delivery() {
-            return Err(TaskError::Conflict(t!("tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings").into()));
+            return Err(TaskError::Conflict(t!("tasks run in the agents' tabs: turn on \"Run agents in tabs\" in Settings").into()));
         }
         let feedback = cap_text(feedback, MAX_TEXT);
         let aligned = {

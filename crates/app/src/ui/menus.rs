@@ -513,17 +513,18 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         }
         div_at(r1.max.y);
 
-        // Row 2: Open agent tabs
+        // Row 2: Run agents in tabs
         let r2 = row_at(1);
         let row2_resp = super::clickable(ui, r2, Id::new("setting-auto-tabs"));
         if row2_resp.hovered() {
             p.rect_filled(r2, 5.0, pal.hover);
         }
-        text_in(p, r2.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Open agent tabs"), theme::ui(12.0), pal.text);
+        text_in(p, r2.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Run agents in tabs"), theme::ui(12.0), pal.text);
         toggle_switch(p, Rect::from_center_size(Pos2::new(r2.max.x - 22.0, r2.center().y), Vec2::new(30.0, 17.0)), auto_tabs);
         if row2_resp.clicked() {
             toggle_tabs = true;
         }
+        super::tip(row2_resp, t!("On: ask-agent and tasks open live terminal tabs. Off: ask-agent runs headless in the background."));
         div_at(r2.max.y);
 
         // Row 3: App shortcuts above the terminal

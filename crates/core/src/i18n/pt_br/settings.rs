@@ -24,7 +24,11 @@ pub const ENTRIES: &[(&str, &str)] = &[
     // Settings menu
     ("SETTINGS", "CONFIGURAÇÕES"),
     ("Notification sounds", "Sons de notificação"),
-    ("Open agent tabs", "Abrir abas dos agentes"),
+    ("Run agents in tabs", "Rodar agentes em abas"),
+    (
+        "On: ask-agent and tasks open live terminal tabs. Off: ask-agent runs headless in the background.",
+        "Ligado: ask-agent e tarefas abrem abas de terminal ao vivo. Desligado: ask-agent roda em modo headless em segundo plano.",
+    ),
     ("App shortcuts above the terminal", "Atalhos do app acima do terminal"),
     (
         "On: Ctrl+B belongs to the app even when the terminal is focused. Off: it goes to the terminal (tmux prefix).",

@@ -91,8 +91,8 @@ pub const ENTRIES: &[(&str, &str)] = &[
         "a tarefa {id} está {status}: só se inicia um rascunho (ou uma tarefa que falhou ao iniciar)",
     ),
     (
-        "tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings (in headless mode there is no tab or worktree per agent)",
-        "as tarefas rodam nas abas dos agentes: ligue \"Abrir abas dos agentes\" nas Configurações (no modo headless não há aba nem worktree por agente)",
+        "tasks run in the agents' tabs: turn on \"Run agents in tabs\" in Settings (in headless mode there is no tab or worktree per agent)",
+        "as tarefas rodam nas abas dos agentes: ligue \"Rodar agentes em abas\" nas Configurações (no modo headless não há aba nem worktree por agente)",
     ),
     (
         "the scope of task {id} overlaps that of {holder}, which is in progress: try again when it finishes",
@@ -169,8 +169,8 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ),
     ("the feedback is empty: say what needs to change", "o feedback está vazio: diga o que precisa mudar"),
     (
-        "tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings",
-        "as tarefas rodam nas abas dos agentes: ligue \"Abrir abas dos agentes\" nas Configurações",
+        "tasks run in the agents' tabs: turn on \"Run agents in tabs\" in Settings",
+        "as tarefas rodam nas abas dos agentes: ligue \"Rodar agentes em abas\" nas Configurações",
     ),
     ("returned to the agent with feedback", "devolvida ao agente com feedback"),
     ("returned with feedback (manual task)", "devolvida com feedback (tarefa manual)"),

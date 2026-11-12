@@ -525,7 +525,7 @@ fn reject_needs_the_agent_tabs() {
     core.task_merge(&env.project, &t.id).expect("merge");
     core.update_config(|c| c.auto_open_agent_tabs = false);
     match core.task_reject(&env.project, &t.id, "x") {
-        Err(TaskError::Conflict(m)) => assert!(m.contains("Open agent tabs"), "{m}"),
+        Err(TaskError::Conflict(m)) => assert!(m.contains("Run agents in tabs"), "{m}"),
         other => panic!("{other:?}"),
     }
     assert_eq!(core.task(&env.project, &t.id).map(|t| t.status), Some(TaskStatus::Validating));

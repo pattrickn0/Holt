@@ -249,7 +249,7 @@ impl Core {
         }
         if !task.manual && !self.tab_delivery() {
             return Err(TaskError::Conflict(
-                t!("tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings (in headless mode there is no tab or worktree per agent)").into(),
+                t!("tasks run in the agents' tabs: turn on \"Run agents in tabs\" in Settings (in headless mode there is no tab or worktree per agent)").into(),
             ));
         }
         if let Some(holder) = queue_holder(&self.tasks(project), &task) {
@@ -718,7 +718,7 @@ impl Core {
             return Err(TaskError::Invalid(t!("the feedback is empty: say what needs to change").into()));
         }
         if !task.manual && !self.tab_delivery() {
-            return Err(TaskError::Conflict(t!("tasks run in the agents' tabs: turn on \"Open agent tabs\" in Settings").into()));
+            return Err(TaskError::Conflict(t!("tasks run in the agents' tabs: turn on \"Run agents in tabs\" in Settings").into()));
         }
         self.return_locked(project, &task, feedback, None)
     }
