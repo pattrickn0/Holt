@@ -51,6 +51,7 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("process ended (code {code}) — press Enter to restart", "processo terminou (código {code}) — pressione Enter para reiniciar"),
     // Projects and team
     ("Could not change the team: {error}.", "Não foi possível mudar a equipe: {error}."),
+    ("Could not change the orchestrator: {error}.", "Não foi possível mudar o orquestrador: {error}."),
     ("\n\nOne of its documents has unsaved edits, which will be lost.", "\n\nUm dos documentos dele tem edições não salvas, que serão perdidas."),
     (
         "\n\n{count} of its documents have unsaved edits, which will be lost.",

@@ -23,6 +23,7 @@ impl Deck {
                             AgentBadge {
                                 id: t.ident.id(),
                                 parent: p.tab_parents.get(&t.ident.id()).cloned(),
+                                orchestrator: p.orchestrators.contains(&t.ident.id()),
                                 kind: t.kind.clone(),
                                 label: t.label.clone(),
                                 model: p.tab_models.get(&t.ident.id()).cloned().or_else(|| t.model.clone()),
@@ -42,6 +43,7 @@ impl Deck {
                         .map(|ident| AgentBadge {
                             id: ident.id(),
                             parent: p.tab_parents.get(&ident.id()).cloned(),
+                            orchestrator: p.orchestrators.contains(&ident.id()),
                             label: ident.label(&self.agents.name(&ident.kind)),
                             model: p.tab_models.get(&ident.id()).cloned().or_else(|| self.agents.local_model(&ident.kind)),
                             status: None,
@@ -89,6 +91,18 @@ impl Deck {
         if let Err(e) = self.core.set_boss(project, id, boss) {
             self.notify(holt_core::Tone::Error, t!("Could not change the team: {error}.", error = e));
         }
+    }
+
+    /// Toggles instance `id` as a project Orchestrator (`enabled`). The core refuses task agents (`tN`).
+    pub fn set_orchestrator(&mut self, project: &str, id: &str, enabled: bool) {
+        if let Err(e) = self.core.set_orchestrator(project, id, enabled) {
+            self.notify(holt_core::Tone::Error, t!("Could not change the orchestrator: {error}.", error = e));
+        }
+    }
+
+    /// `true` if `id` is designated as an Orchestrator in `project`.
+    pub fn is_orchestrator(&self, project: &str, id: &str) -> bool {
+        self.core.is_orchestrator(project, id)
     }
 
     /// Click on an agent in the sidebar: brings its project to the screen (opening the saved tabs,

@@ -1090,7 +1090,13 @@ fn the_team_can_be_reorganized_and_survives_renames_and_closes() {
 
     // Each tab checks its own position through the token.
     let (st, b) = http(port, "GET", "/team", &host, &tab_token(&env, "shell@dev"), "");
-    assert_eq!((st, b), (200, json!({"id": "shell@dev", "boss": "shell", "crew": ["shell@qa"], "quota": {}, "models": {}})));
+    assert_eq!(
+        (st, b),
+        (
+            200,
+            json!({"id": "shell@dev", "boss": "shell", "crew": ["shell@qa"], "orchestrators": [], "is_orchestrator": false, "quota": {}, "models": {}})
+        )
+    );
     let (st, _) = http(port, "GET", "/team", &host, env.core.bridge_token(), "");
     assert_eq!(st, 400, "the master token is not an agent");
 
@@ -1108,6 +1114,84 @@ fn the_team_can_be_reorganized_and_survives_renames_and_closes() {
     env.core.set_boss(&p, "shell@qa", None).expect("root");
     assert_eq!(env.core.team(&p, "shell"), holt_core::Team::default());
     assert!(env.core.projects()[0].tab_parents.is_empty(), "saved in the project's config");
+    env.core.shutdown();
+}
+
+#[test]
+fn orchestrators_are_toggleable_per_agent_and_distinct_from_a_boss_with_crew() {
+    let env = start(&[]);
+    let p = env.core.active_project_id();
+    let port = env.core.bridge_port();
+    let host = format!("127.0.0.1:{port}");
+    for id in ["shell", "shell@dev", "shell@lead", "shell@t3"] {
+        env.core.restore_instance(&p, id);
+    }
+    // `shell` opened `shell@dev` (it is its boss), while `shell@lead` and `shell@dev` can be toggled independently.
+    env.core.set_boss(&p, "shell@dev", Some("shell")).expect("team");
+    assert!(env.core.orchestrators(&p).is_empty());
+    env.core.set_orchestrator(&p, "shell@lead", true).expect("enable lead");
+    env.core.set_orchestrator(&p, "shell@dev", true).expect("enable dev");
+    assert!(env.core.is_orchestrator(&p, "shell@lead") && env.core.is_orchestrator(&p, "shell@dev"));
+    assert_eq!(env.core.projects()[0].orchestrators, ["shell@dev".to_string(), "shell@lead".to_string()].into());
+
+    // Task agents, closed instances (on enable) and unknown projects are refused.
+    assert!(env.core.set_orchestrator(&p, "shell@t3", true).is_err(), "a task agent cannot be an Orchestrator");
+    assert!(env.core.set_orchestrator(&p, "shell@nothing", true).is_err());
+    assert!(env.core.set_orchestrator("p00000000", "shell", true).is_err());
+
+    // GET /team: the boss with crew is not an Orchestrator; each designated Orchestrator knows it is.
+    let team = |id: &str| http(port, "GET", "/team", &host, &tab_token(&env, id), "").1;
+    let delegator = team("shell");
+    assert_eq!(delegator["crew"], json!(["shell@dev"]));
+    assert_eq!(
+        (delegator["orchestrators"].clone(), delegator["is_orchestrator"].as_bool()),
+        (json!(["shell@dev", "shell@lead"]), Some(false))
+    );
+    let orch = team("shell@lead");
+    assert_eq!((orch["orchestrators"].clone(), orch["is_orchestrator"].as_bool()), (json!(["shell@dev", "shell@lead"]), Some(true)));
+    assert_eq!(orch["crew"], json!([]));
+    // GET /agents lists all open Orchestrators, for tabs and master token alike.
+    let agents = |token: &str| http(port, "GET", "/agents", &host, token, "").1;
+    assert_eq!(agents(&tab_token(&env, "shell@dev"))["orchestrators"], json!(["shell@dev", "shell@lead"]));
+    assert_eq!(agents(env.core.bridge_token())["orchestrators"], json!(["shell@dev", "shell@lead"]));
+
+    // Toggling off one does not affect the other; toggling back on queues the team notice.
+    env.core.set_orchestrator(&p, "shell@dev", false).expect("disable dev");
+    assert!(!env.core.is_orchestrator(&p, "shell@dev") && env.core.is_orchestrator(&p, "shell@lead"));
+    env.core.set_orchestrator(&p, "shell@lead", false).expect("disable lead");
+    env.core.set_orchestrator(&p, "shell@lead", true).expect("enable lead again");
+    let notice = env.core.take_team_notice(&p, "shell@lead").expect("notice");
+    assert!(notice.contains("You are an Orchestrator for this project"), "{notice}");
+
+    // Renaming takes the role along; closing removes only that instance.
+    let renamed = holt_core::Ident::parse("shell@lead@ana").expect("id");
+    env.core.rename_instance(&p, "shell@lead", &renamed).expect("renames");
+    assert!(env.core.is_orchestrator(&p, "shell@lead@ana"));
+    assert!(env.core.team(&p, "shell@lead@ana").is_orchestrator);
+    env.core.close_instance(&p, "shell@lead@ana");
+    assert!(env.core.orchestrators(&p).is_empty());
+    assert_eq!(agents(env.core.bridge_token())["orchestrators"], json!([]));
+    let after = team("shell");
+    assert_eq!((after["orchestrators"].clone(), after["is_orchestrator"].as_bool()), (json!([]), Some(false)));
+
+    // Disabling an already-disabled agent is idempotent.
+    env.core.set_orchestrator(&p, "shell", false).expect("idempotent");
+    assert!(env.core.projects()[0].orchestrators.is_empty());
+    env.core.shutdown();
+}
+
+#[test]
+fn only_orchestrator_tabs_are_told_their_role_in_the_instructions() {
+    let env = start(&[]);
+    fake_claude(&env);
+    let p = env.core.active_project_id();
+    for id in ["claude", "claude@lead"] {
+        env.core.restore_instance(&p, id);
+    }
+    env.core.set_orchestrator(&p, "claude@lead", true).expect("designates");
+    let args = |id: &str| env.core.spawn_spec_for(&p, &holt_core::Ident::parse(id).expect("id")).expect("spec").args.join("\n");
+    assert!(args("claude@lead").contains("You are an Orchestrator for this project"));
+    assert!(!args("claude").contains("Orchestrator"), "a regular agent is not told it");
     env.core.shutdown();
 }
 

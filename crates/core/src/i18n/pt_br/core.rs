@@ -10,6 +10,7 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ),
     ("\"{who}\" is not open in this project", "\"{who}\" não está aberto neste projeto"),
     ("\"{b}\" is already part of the team of \"{id}\": it cannot be its boss", "\"{b}\" já faz parte da equipe de \"{id}\": não pode ser o chefe dele"),
+    ("\"{id}\" is a task agent: it cannot be the project's orchestrator", "\"{id}\" é agente de uma tarefa: não pode ser o orquestrador do projeto"),
     (
         "The answer #{request} to {asker} was not typed: {why}; it stays in ask-agent --inbox.",
         "A resposta #{request} para {asker} não foi digitada: {why}; ela fica em ask-agent --inbox.",

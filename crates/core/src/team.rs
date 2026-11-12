@@ -1,15 +1,32 @@
 //! Hierarchy of a project's instances (who is whose boss), stored in
-//! `ProjectCfg.tab_parents` (instance id → boss id). Pure functions; the `Core` applies them.
+//! `ProjectCfg.tab_parents` (instance id → boss id), and the project's Orchestrators (`ProjectCfg.orchestrators`).
+//! Pure functions; the `Core` applies them.
+//!
+//! Two different things live here: any agent that calls `ask-agent <other>` (or creates a task) becomes the **boss**
+//! of whoever it opened, a temporary place in the tree; an **Orchestrator** is a project-level role the user
+//! toggles per agent (never a task agent `tN`), persisted and shown by the bridge, `ask-agent` and the UI.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-/// Boss and crew of an instance.
+/// Boss and crew of an instance, plus the project's Orchestrators.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Team {
     /// Who the instance answers to (`None` = the user).
     pub boss: Option<String>,
-    /// Who answers to it, in `open` order.
+    /// Who answers to it, in `open` order. Having a crew does not make an instance an Orchestrator: any agent that
+    /// opened helpers has one.
     pub crew: Vec<String>,
+    /// The project's Orchestrators that are currently open, in `open` order.
+    pub orchestrators: Vec<String>,
+    /// The instance itself is designated as an Orchestrator for this project.
+    pub is_orchestrator: bool,
+}
+
+/// `id` is the agent of a task (role `tN`, e.g. `claude@t3`): it lives only while the task does, so it cannot be an
+/// Orchestrator.
+pub fn is_task_agent(id: &str) -> bool {
+    let role = id.split('@').nth(1).unwrap_or("");
+    role.strip_prefix('t').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Putting `child` under `parent` would create a cycle (`parent` is `child` itself or someone in its crew).
@@ -27,11 +44,31 @@ pub fn would_cycle(parents: &BTreeMap<String, String>, child: &str, parent: &str
     true
 }
 
-/// Boss and crew of `id`, considering only the open instances (`open`).
-pub fn team_of(parents: &BTreeMap<String, String>, id: &str, open: &[String]) -> Team {
+/// Boss and crew of `id`, considering only the open instances (`open`), and the project's `orchestrators` (only open ones).
+pub fn team_of(parents: &BTreeMap<String, String>, id: &str, open: &[String], orchestrators: &BTreeSet<String>) -> Team {
+    let open_orchs = open_orchestrators(orchestrators, open);
     Team {
         boss: parents.get(id).filter(|b| open.contains(b)).cloned(),
         crew: open.iter().filter(|o| parents.get(o.as_str()).is_some_and(|p| p == id)).cloned().collect(),
+        is_orchestrator: open_orchs.iter().any(|o| o == id),
+        orchestrators: open_orchs,
+    }
+}
+
+/// The saved Orchestrators that are currently open instances, in `open` order.
+pub fn open_orchestrators(orchestrators: &BTreeSet<String>, open: &[String]) -> Vec<String> {
+    open.iter().filter(|id| orchestrators.contains(id.as_str())).cloned().collect()
+}
+
+/// The instance `closed` left: removes it from the project's Orchestrators if it was one. `true` if it changed.
+pub fn close_orchestrator(orchestrators: &mut BTreeSet<String>, closed: &str) -> bool {
+    orchestrators.remove(closed)
+}
+
+/// The instance `old` is now called `new`: its Orchestrator status follows it (and is dropped if the new id is a task agent).
+pub fn rename_orchestrator(orchestrators: &mut BTreeSet<String>, old: &str, new: &str) {
+    if orchestrators.remove(old) && !is_task_agent(new) {
+        orchestrators.insert(new.to_owned());
     }
 }
 
@@ -70,10 +107,26 @@ pub fn notice(team: &Team) -> String {
         None => "you answer directly to the user".to_owned(),
     };
     let crew = if team.crew.is_empty() { "no agents".to_owned() } else { team.crew.join(", ") };
+    let orchestrator = if team.is_orchestrator {
+        format!(" {}", orchestrator_note())
+    } else if !team.orchestrators.is_empty() {
+        format!(" Project orchestrators: {}.", team.orchestrators.join(", "))
+    } else {
+        String::new()
+    };
     format!(
-        "[Holt] Your place in the team changed: {boss}; your crew: {crew}. Delegate preferably to your crew. \
+        "[Holt] Your place in the team changed: {boss}; your crew: {crew}. Delegate preferably to your crew.{orchestrator} \
 Check it at any time with ask-agent --team."
     )
+}
+
+/// What an instance designated as a project Orchestrator is told (instructions and team notice): its software
+/// role, against a regular agent that merely opened helpers.
+pub fn orchestrator_note() -> &'static str {
+    "You are an Orchestrator for this project: the user designated you in Holt to coordinate the project's agents and tasks. \
+Plan the work, split it into tasks (ask-agent --task new), pick agents and models by quota (ask-agent --models), follow \
+them up and review what they deliver; prefer delegating to doing the changes yourself. Any agent that opens helpers \
+becomes their boss, but only designated Orchestrators hold the Orchestrator role (ask-agent --team shows it)."
 }
 
 #[cfg(test)]
@@ -82,6 +135,10 @@ mod tests {
 
     fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs.iter().map(|(c, p)| (c.to_string(), p.to_string())).collect()
+    }
+
+    fn set(v: &[&str]) -> BTreeSet<String> {
+        v.iter().map(|s| s.to_string()).collect()
     }
 
     fn ids(v: &[&str]) -> Vec<String> {
@@ -103,8 +160,58 @@ mod tests {
     fn the_team_only_has_open_instances() {
         let m = map(&[("claude@dev", "claude"), ("antigravity", "claude"), ("claude", "fechado")]);
         let open = ids(&["claude", "claude@dev", "antigravity"]);
-        assert_eq!(team_of(&m, "claude", &open), Team { boss: None, crew: ids(&["claude@dev", "antigravity"]) });
-        assert_eq!(team_of(&m, "antigravity", &open), Team { boss: Some("claude".into()), crew: vec![] });
+        let empty = BTreeSet::new();
+        assert_eq!(team_of(&m, "claude", &open, &empty), Team { crew: ids(&["claude@dev", "antigravity"]), ..Team::default() });
+        assert_eq!(team_of(&m, "antigravity", &open, &empty), Team { boss: Some("claude".into()), ..Team::default() });
+    }
+
+    #[test]
+    fn orchestrators_are_distinct_from_a_boss_with_crew_and_can_be_multiple() {
+        // `claude` opened helpers (it has a crew), while `codex` and `antigravity` are designated Orchestrators.
+        let m = map(&[("claude@dev", "claude"), ("antigravity", "claude")]);
+        let open = ids(&["claude", "claude@dev", "antigravity", "codex"]);
+        let orchs = set(&["codex", "antigravity", "gone"]);
+        let delegator = team_of(&m, "claude", &open, &orchs);
+        assert_eq!(delegator.crew, ids(&["claude@dev", "antigravity"]));
+        assert!(!delegator.is_orchestrator, "a crew does not make an Orchestrator");
+        assert_eq!(delegator.orchestrators, ids(&["antigravity", "codex"]));
+
+        let orch = team_of(&m, "codex", &open, &orchs);
+        assert!(orch.is_orchestrator && orch.crew.is_empty() && orch.boss.is_none());
+        assert_eq!(orch.orchestrators, ids(&["antigravity", "codex"]));
+    }
+
+    #[test]
+    fn task_agents_are_recognized() {
+        for id in ["claude@t1", "codex@t42", "claude@t3@ana"] {
+            assert!(is_task_agent(id), "{id}");
+        }
+        for id in ["claude", "claude@dev", "claude@t", "claude@tx1", "claude@test", "t1", "claude@dev@t1"] {
+            assert!(!is_task_agent(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn orchestrators_follow_close_and_rename() {
+        let mut o = set(&["claude", "codex"]);
+        assert!(!close_orchestrator(&mut o, "antigravity"));
+        rename_orchestrator(&mut o, "antigravity", "antigravity@dev");
+        assert_eq!(o, set(&["claude", "codex"]));
+        rename_orchestrator(&mut o, "claude", "claude@lead");
+        assert_eq!(o, set(&["claude@lead", "codex"]));
+        rename_orchestrator(&mut o, "claude@lead", "claude@t9");
+        assert_eq!(o, set(&["codex"]), "a task agent cannot hold the role");
+        assert!(close_orchestrator(&mut o, "codex"));
+        assert!(o.is_empty());
+    }
+
+    #[test]
+    fn the_notice_names_the_orchestrators() {
+        let team = Team { orchestrators: ids(&["codex", "antigravity"]), ..Team::default() };
+        assert!(notice(&team).contains("Project orchestrators: codex, antigravity."));
+        let me = Team { orchestrators: ids(&["codex"]), is_orchestrator: true, ..Team::default() };
+        assert!(notice(&me).contains("You are an Orchestrator for this project"));
+        assert!(!notice(&Team::default()).contains("Orchestrator"));
     }
 
     #[test]

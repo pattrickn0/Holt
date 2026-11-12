@@ -9,6 +9,7 @@ fn debug_projects() -> Vec<crate::deck::ProjectView> {
     let agent = |id: &str, parent: Option<&str>, kind: &str, label: &str, color, busy, done| AgentBadge {
         id: id.into(),
         parent: parent.map(Into::into),
+        orchestrator: false,
         kind: kind.into(),
         label: label.into(),
         model: match id {
@@ -38,7 +39,7 @@ fn debug_projects() -> Vec<crate::deck::ProjectView> {
         expanded: active,
         agents,
     };
-    vec![
+    let mut list = vec![
         project(
             "p1",
             "holt-dev",
@@ -64,7 +65,10 @@ fn debug_projects() -> Vec<crate::deck::ProjectView> {
             ],
         ),
         project("p3", "new-site", "", false, vec![]),
-    ]
+    ];
+    // `claude` is the project's Orchestrator; `claude@dev` leads `codex` as a regular boss, with no badge.
+    list[0].agents[0].orchestrator = true;
+    list
 }
 
 /// DEBUG ONLY: fake usage in the title bar (`HOLT_DEBUG_UI=usage-demo` and `usage-panel`): Claude

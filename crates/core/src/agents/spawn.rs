@@ -37,7 +37,10 @@ pub(crate) fn spawn_spec_for(core: &Core, project: &str, ident: &Ident) -> Resul
     }
     let data_dir = core.paths().data_dir.to_string_lossy().into_owned();
     // No CLI depends on the user's `AGENTS.md`: each one gets the instructions through the channel it has.
-    let instructions = reg.bridge_instructions_for_with(ident, &custom_agents);
+    // The project's Orchestrator learns its role here; one designated with the tab already open learns it from the team
+    // notice (see `Core::set_orchestrator`).
+    let orchestrator = core.is_orchestrator(project, &id);
+    let instructions = reg.bridge_instructions_for_with(ident, &custom_agents, orchestrator);
     let generic_file = write_instructions_file(&core.paths().data_dir, &reg.bridge_instructions(None))
         .map_err(|e| log::warn!("could not write the Holt instructions file: {e}"))
         .ok();

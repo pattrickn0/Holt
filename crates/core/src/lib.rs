@@ -516,6 +516,8 @@ impl Core {
         let mut touched = Vec::new();
         self.update_project(project, |p| {
             touched = team::remove(&mut p.tab_parents, id);
+            // The Orchestrator closed for good: the project has none until the user designates another.
+            team::close_orchestrator(&mut p.orchestrators, id);
             p.tab_models.remove(id);
             p.tab_efforts.remove(id);
             // Closed for good (the tab's ×, a finished task): reopening it later starts a new conversation.
@@ -528,8 +530,44 @@ impl Core {
 
     /// Boss and team of instance `id` of the project (only open instances).
     pub fn team(&self, project: &str, id: &str) -> Team {
-        let parents = self.inner.config.read().project(project).map(|p| p.tab_parents.clone()).unwrap_or_default();
-        team::team_of(&parents, id, &self.project_instance_ids(project))
+        let (parents, orchestrators) =
+            self.inner.config.read().project(project).map(|p| (p.tab_parents.clone(), p.orchestrators.clone())).unwrap_or_default();
+        team::team_of(&parents, id, &self.project_instance_ids(project), &orchestrators)
+    }
+
+    /// The project's Orchestrators, as saved (`ProjectCfg.orchestrators`), even if their tabs have not been reopened yet.
+    /// Orchestrator is a project-level role toggled per agent; an agent that merely opened helpers is only their boss
+    /// (see `team.rs`).
+    pub fn orchestrators(&self, project: &str) -> std::collections::BTreeSet<String> {
+        self.inner.config.read().project(project).map(|p| p.orchestrators.clone()).unwrap_or_default()
+    }
+
+    /// `true` if `id` is designated as an Orchestrator in `project`.
+    pub fn is_orchestrator(&self, project: &str, id: &str) -> bool {
+        self.inner.config.read().project(project).is_some_and(|p| p.orchestrators.contains(id))
+    }
+
+    /// Toggles instance `id` as a project Orchestrator (`enabled`). Refuses task agents (`tN`), unknown projects, and
+    /// enabling an instance that is not open in the project. When changed, the instance receives the team notice with its
+    /// next message; the sidebar reads the saved config on the next frame.
+    pub fn set_orchestrator(&self, project: &str, id: &str, enabled: bool) -> Result<(), String> {
+        if self.project_path(project).is_none() {
+            return Err(crate::t!("unknown project: {id}", id = project));
+        }
+        if team::is_task_agent(id) {
+            return Err(crate::t!("\"{id}\" is a task agent: it cannot be the project's orchestrator", id));
+        }
+        if enabled && !self.project_instance_ids(project).iter().any(|o| o == id) {
+            return Err(crate::t!("\"{who}\" is not open in this project", who = id));
+        }
+        let mut changed = false;
+        self.update_project(project, |p| {
+            changed = if enabled { p.orchestrators.insert(id.to_owned()) } else { p.orchestrators.remove(id) };
+        });
+        if changed {
+            self.mark_team_changed(project, &[id.to_owned()]);
+        }
+        Ok(())
     }
 
     /// Puts instance `id` under `boss` (`None` = answers to the user). Refuses instances that are not
@@ -592,6 +630,7 @@ impl Core {
         self.inner.activity.forget(&instances::scoped(project, old_id));
         self.update_project(project, |p| {
             team::rename(&mut p.tab_parents, old_id, &new_id);
+            team::rename_orchestrator(&mut p.orchestrators, old_id, &new_id);
             models::rename(&mut p.tab_models, old_id, &new_id);
             models::rename(&mut p.tab_efforts, old_id, &new_id);
             models::rename(&mut p.tab_sessions, old_id, &new_id);

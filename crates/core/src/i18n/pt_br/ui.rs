@@ -83,6 +83,16 @@ pub const ENTRIES: &[(&str, &str)] = &[
     ("{name} (ended)", "{name} (encerrado)"),
     ("Reports to {agent}", "Responde a {agent}"),
     ("Drag onto another agent to put it on their team", "Arraste sobre outro agente para pô-lo na equipe dele"),
+    // The project's Orchestrator (sidebar chip and tab menu)
+    ("orch", "orq"),
+    ("The project's orchestrator", "O orquestrador do projeto"),
+    ("Set as orchestrator", "Definir como orquestrador"),
+    ("Remove orchestrator", "Remover orquestrador"),
+    ("This agent stops being the project's orchestrator.", "Este agente deixa de ser o orquestrador do projeto."),
+    (
+        "Makes this agent the project's orchestrator: it coordinates the other agents and the tasks.",
+        "Torna este agente o orquestrador do projeto: ele coordena os outros agentes e as tarefas.",
+    ),
     ("+ New agent", "+ Novo agente"),
     ("New agent", "Novo agente"),
     ("Choose an agent to open in this project", "Escolher um agente para abrir neste projeto"),

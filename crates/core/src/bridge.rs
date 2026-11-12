@@ -235,10 +235,18 @@ fn handle(weak: Weak<CoreInner>, mut req: Request, port: u16, slot: Active, bodi
                 !crate::agents::can_answer_with(base, &custom)
             })
             .collect();
+        // The project's Orchestrators (a designated role, not just whoever opened helpers), only open tabs.
+        let orchestrators = crate::team::open_orchestrators(&core.orchestrators(&project), &core.project_instance_ids(&project));
         return reply(
             req,
             200,
-            json!({ "agents": core.peers(&project), "quota": core.quota_notes(&models), "models": models, "cannot_answer": cannot_answer }),
+            json!({
+                "agents": core.peers(&project),
+                "quota": core.quota_notes(&models),
+                "models": models,
+                "cannot_answer": cannot_answer,
+                "orchestrators": orchestrators,
+            }),
         );
     }
     if *req.method() == Method::Get && (req.url() == "/models" || req.url().starts_with("/models?")) {
@@ -267,16 +275,24 @@ fn handle(weak: Weak<CoreInner>, mut req: Request, port: u16, slot: Active, bodi
         // Whoever asks is already aware: the pending notice does not have to go in the next message.
         core.inner.team_changed.lock().remove(&c.key(&c.id));
         let team = core.team(&c.project, &c.id);
-        // The models of whoever appears in the answer (themselves, the boss and the crew), for `--team`.
+        // The models of whoever appears in the answer (themselves, the boss, the crew and the Orchestrators), for `--team`.
         let models: std::collections::BTreeMap<String, String> = core
             .instance_models(&c.project)
             .into_iter()
-            .filter(|(id, _)| *id == c.id || team.boss.as_ref() == Some(id) || team.crew.contains(id))
+            .filter(|(id, _)| *id == c.id || team.boss.as_ref() == Some(id) || team.crew.contains(id) || team.orchestrators.contains(id))
             .collect();
         return reply(
             req,
             200,
-            json!({ "id": c.id, "boss": team.boss, "crew": team.crew, "quota": core.quota_notes(&models), "models": models }),
+            json!({
+                "id": c.id,
+                "boss": team.boss,
+                "crew": team.crew,
+                "orchestrators": team.orchestrators,
+                "is_orchestrator": team.is_orchestrator,
+                "quota": core.quota_notes(&models),
+                "models": models,
+            }),
         );
     }
     let route = req.url().to_owned();
