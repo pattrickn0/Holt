@@ -169,6 +169,11 @@ fn agy_effort_split(model: &str) -> Option<(&str, Effort)> {
     Effort::ALL.into_iter().find_map(|e| model.strip_suffix(e.as_str())?.strip_suffix('-').map(|base| (base, e)))
 }
 
+/// Base name of an Antigravity model with an effort suffix (`-low`, `-medium`, `-high`, or `-xhigh`).
+fn agy_base(model: &str) -> Option<&str> {
+    agy_effort_split(model).map(|(b, _)| b).or_else(|| model.strip_suffix("-xhigh"))
+}
+
 /// Why the effort does not apply to `kind` with `model` (the interface hint and the request error); `None` = it applies.
 /// Claude: `--effort`. Codex: `-c model_reasoning_effort`. Antigravity: it swaps the model name suffix, so it needs a model with a suffix.
 /// OpenCode: the variant (`model#variant`) only exists in `run -m`; the interactive tab does not get it.
@@ -198,8 +203,8 @@ pub fn effort_args(kind: &str, effort: Effort) -> Vec<String> {
 /// The Antigravity model with the effort suffix swapped (`gemini-4-argon-low` + high →
 /// `gemini-4-argon-high`). Any other case returns the model as it came.
 pub fn effort_model(kind: &str, model: &str, effort: Effort) -> String {
-    match (kind, agy_effort_split(model)) {
-        ("antigravity", Some((base, _))) => format!("{base}-{}", effort.as_str()),
+    match (kind, agy_base(model)) {
+        ("antigravity", Some(base)) => format!("{base}-{}", effort.as_str()),
         _ => model.to_owned(),
     }
 }
@@ -212,12 +217,12 @@ pub fn model_effort(kind: &str, model: &str) -> Option<Effort> {
     agy_effort_split(model).map(|(_, e)| e)
 }
 
-/// The Antigravity list without the effort variants: `…-argon-low|medium|high` are one entry (`…-argon`), in the order
-/// they first appear. A model without a suffix stays as it is.
+/// The Antigravity list without the effort variants: `…-argon-low|medium|high|xhigh` are one entry (`…-argon`), in the
+/// order they first appear. A model without a suffix stays as it is.
 pub fn agy_bases(models: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for m in models {
-        let base = agy_effort_split(m).map_or(m.as_str(), |(base, _)| base);
+        let base = agy_base(m).unwrap_or(m.as_str());
         if !out.iter().any(|b| b == base) {
             out.push(base.to_owned());
         }
@@ -823,6 +828,12 @@ mod tests {
         assert_eq!(agy_variant(&list, "gemini-4-flash", Some(Effort::High)), "gemini-4-flash");
         assert_eq!(model_effort("antigravity", "gemini-4-argon-high"), Some(Effort::High));
         assert_eq!(model_effort("claude", "gemini-4-argon-high"), None);
+        let hydrogen = ["gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-low"]
+            .map(str::to_owned)
+            .to_vec();
+        assert_eq!(agy_bases(&hydrogen), ["gemini-4-hydrogen"]);
+        assert_eq!(agy_variant(&hydrogen, "gemini-4-hydrogen", Some(Effort::High)), "gemini-4-hydrogen-high");
+        assert_eq!(effort_model("antigravity", "gemini-4-hydrogen-xhigh", Effort::Medium), "gemini-4-hydrogen-medium");
     }
 
     #[test]

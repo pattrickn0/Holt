@@ -194,19 +194,27 @@ fn duration_text(ms: u64) -> String {
     }
 }
 
-/// Antigravity model quota group: Argon has its own, other Gemini share "Gemini Models", and Claude
-/// and GPT share "Claude and GPT models".
+/// Antigravity model quota group: Argon (and Hydrogen, if separated) has its own, other Gemini
+/// share "Gemini Models", and Claude and GPT share "Claude and GPT models".
 fn group_of<'a>(groups: &'a [UsageGroup], model: &str) -> Option<&'a UsageGroup> {
     let m = model.to_ascii_lowercase();
+    if m.contains("argon") {
+        return groups.iter().find(|g| g.name.to_ascii_lowercase().contains("argon"));
+    }
+    if m.starts_with("gemini") {
+        if m.contains("hydrogen") {
+            if let Some(g) = groups.iter().find(|g| g.name.to_ascii_lowercase().contains("hydrogen")) {
+                return Some(g);
+            }
+        }
+        return groups.iter().find(|g| {
+            let n = g.name.to_ascii_lowercase();
+            n.contains("gemini") && !n.contains("argon") && !n.contains("hydrogen")
+        });
+    }
     groups.iter().find(|g| {
         let n = g.name.to_ascii_lowercase();
-        if m.contains("argon") {
-            n.contains("argon")
-        } else if m.starts_with("gemini") {
-            n.contains("gemini") && !n.contains("argon")
-        } else {
-            n.contains("claude") || n.contains("gpt")
-        }
+        n.contains("claude") || n.contains("gpt")
     })
 }
 
@@ -826,7 +834,17 @@ mod tests {
         assert_eq!(used(Some("gemini-4-argon-high")), Some((0.04, Some("Gemini 4 Argon".into()), false)));
         assert_eq!(used(Some("claude-sonnet-5-5-high")), Some((0.95, Some("Claude and GPT models".into()), false)));
         assert_eq!(used(Some("gemini-3.8-flash-high")), Some((0.004, Some("Gemini Models".into()), false)));
+        assert_eq!(used(Some("gemini-4-hydrogen-high")), Some((0.004, Some("Gemini Models".into()), false)));
         assert_eq!(used(None), Some((0.04, None, true)));
+        let with_hydrogen = AgentUsage {
+            groups: vec![group("Gemini Models", w(0.0, 5), w(0.01, 34)), group("Gemini 4 Hydrogen", w(0.1, 5), w(0.6, 48))],
+            updated_ms: NOW,
+            ..Default::default()
+        };
+        assert_eq!(
+            model_quota(&with_hydrogen, Some("gemini-4-hydrogen-xhigh"), NOW).and_then(|q| q.group),
+            Some("Gemini 4 Hydrogen".into())
+        );
         let no_claude = AgentUsage { groups: vec![group("Gemini 4 Argon", None, w(0.04, 6 * 24))], updated_ms: NOW, ..Default::default() };
         assert_eq!(model_usage(&no_claude, Some("claude-sonnet-5-5-high"), NOW).map(|u| (u.used, u.fallback)), Some((0.04, true)));
         assert_eq!(model_usage(&claude, Some("sonnet"), NOW).map(|u| (u.used, u.fallback)), Some((0.5, false)));
