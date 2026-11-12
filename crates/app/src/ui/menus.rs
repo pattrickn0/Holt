@@ -3,7 +3,7 @@
 use egui::{Align2, Area, Color32, Id, Key, Order, Pos2, Rect, Sense, Stroke, Vec2};
 
 use holt_core::i18n::{self, Lang};
-use holt_core::{models, t, Organization};
+use holt_core::{models, t};
 
 use super::{button, button_danger, button_width, dot, frame, section_label, separator, shadow, text_in, text_w, ButtonKind};
 use crate::deck::Deck;
@@ -418,24 +418,24 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
         deck.dictation_confirm_remove = false;
         return;
     }
-    let w = 260.0;
-    let title_h = super::SECTION_LABEL_H;
-    let item_h = 26.0;
-    let btn_h = 28.0;
-    // Four rows (three switches and the language), then the test button; voice dictation is optional: a
-    // status row and a button to download or remove it.
-    // The Dictation section sits between the language and the test button: label, 3 rows of language chips, the
-    // translate switch and a hint.
-    let chip_h = 24.0;
-    let dict_h = 13.0 + title_h + chip_h * 3.0 + 4.0 + item_h + 36.0;
-    // The Layout section (window organization) sits on top: label, three rows and a separator.
-    let layout_h = title_h + 2.0 + item_h * 3.0 + 13.0;
-    let h = 6.0 + layout_h + title_h + 2.0 + item_h * 4.0 + dict_h + 13.0 + btn_h + 13.0 + item_h + btn_h + 8.0;
+    let w = 348.0;
+    let pad = 12.0;
+    let inner_w = w - pad * 2.0;
+    let title_h = 18.0;
+    let row_h = 30.0;
+    let gen_h = row_h * 4.0 + 8.0;
+    let dict_hdr_h = 26.0;
+    let chip_h = 26.0;
+    let chip_gap = 4.0;
+    let grid_h = chip_h * 3.0 + chip_gap * 2.0;
+    let tr_h = 44.0;
+    let footer_h = 34.0;
+    let dict_h = 8.0 + dict_hdr_h + 4.0 + grid_h + 8.0 + tr_h + 8.0 + footer_h + 6.0;
+    let h = pad + title_h + 4.0 + gen_h + 10.0 + dict_h + pad;
+
     // The ☰ button sits in the left corner of the title bar: the menu opens aligned with it.
-    let pos = keep_on_screen(ctx, Pos2::new(anchor.min.x + 4.0, anchor.max.y), Vec2::new(w, h));
+    let pos = keep_on_screen(ctx, Pos2::new(anchor.min.x + 4.0, anchor.max.y + 4.0), Vec2::new(w, h));
     let menu_rect = Rect::from_min_size(pos, Vec2::new(w, h));
-    let mut layout = None;
-    let current_org = deck.organization;
     let mut toggle = false;
     let mut toggle_tabs = false;
     let mut toggle_keys = false;
@@ -456,142 +456,152 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
     let app_keys = deck.app_shortcuts_first;
     let current_lang = i18n::lang();
     let pal = theme::pal();
+
     Area::new(Id::new("settings-menu")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::click());
         let p = ui.painter();
-        shadow(p, rect, 8, 8, 24, pal.shadow);
-        frame(p, rect, 8.0, pal.popup, pal.glass_border);
-        let inner = rect.shrink2(Vec2::new(6.0, 6.0));
-        // `section_label` indents by 10 px; `inner.min.x - 2.0` aligns section titles with the 8 px row text inset.
-        let label_x = inner.min.x - 2.0;
-        // Layout: how the windows of the project are arranged (the same choice as the sidebar switch).
-        section_label(p, Rect::from_min_size(Pos2::new(label_x, inner.min.y), Vec2::new(rect.width(), title_h)), t!("LAYOUT"));
-        for (i, org) in [Organization::Tabs, Organization::Split, Organization::Highlight].into_iter().enumerate() {
-            let row = Rect::from_min_size(
-                Pos2::new(inner.min.x, inner.min.y + title_h + 2.0 + item_h * i as f32),
-                Vec2::new(inner.width(), item_h),
-            );
-            let r = super::clickable(ui, row, Id::new(("setting-layout", i)));
-            let on = org == current_org;
-            let hov = r.hovered();
-            let pill = row.shrink2(Vec2::new(0.0, 1.0));
-            if on {
-                p.rect_filled(pill, 5.0, if hov { pal.selected } else { pal.selected_soft });
-            } else if hov {
-                p.rect_filled(pill, 5.0, pal.hover);
-            }
-            let icon_fg = if on {
-                pal.text_strong
-            } else if hov {
-                pal.text
-            } else {
-                pal.text_3
-            };
-            let text_fg = if on {
-                pal.text_strong
-            } else if hov {
-                pal.text
-            } else {
-                pal.text_2
-            };
-            super::sidebar::paint_org_icon(p, Pos2::new(row.min.x + 16.0, row.center().y), org, icon_fg);
-            text_in(
-                p,
-                Rect::from_min_max(Pos2::new(row.min.x + 32.0, row.min.y), Pos2::new(row.max.x - 28.0, row.max.y)),
-                Align2::LEFT_CENTER,
-                super::sidebar::org_name(org),
-                if on { theme::ui_medium(12.0) } else { theme::ui(12.0) },
-                text_fg,
-            );
-            if on {
-                let c = Pos2::new(row.max.x - 15.0, row.center().y);
-                let pts = vec![c + Vec2::new(-4.0, 0.5), c + Vec2::new(-1.5, 3.0), c + Vec2::new(4.0, -2.5)];
-                p.add(egui::Shape::line(pts, Stroke::new(1.5, pal.text_strong)));
-            }
-            if super::tip(r, super::sidebar::org_effect(org)).clicked() {
-                layout = Some(org);
-            }
-        }
-        let after_layout = inner.min.y + layout_h;
-        separator(p, Pos2::new(inner.min.x + 4.0, after_layout - 6.5), Pos2::new(inner.max.x - 4.0, after_layout - 6.5));
-        section_label(p, Rect::from_min_size(Pos2::new(label_x, after_layout), Vec2::new(rect.width(), title_h)), t!("SETTINGS"));
+        shadow(p, rect, 10, 8, 24, pal.shadow);
+        frame(p, rect, 10.0, pal.popup, pal.glass_border);
 
-        // Item 1: notification sounds
-        let item = Rect::from_min_size(Pos2::new(inner.min.x, after_layout + title_h + 2.0), Vec2::new(inner.width(), item_h));
-        let r = super::clickable(ui, item, Id::new("setting-sound"));
-        if r.hovered() {
-            p.rect_filled(item, 5.0, pal.hover);
+        let inner = rect.shrink2(Vec2::splat(pad));
+        section_label(p, Rect::from_min_size(Pos2::new(inner.min.x - 8.0, inner.min.y), Vec2::new(inner_w, title_h)), t!("SETTINGS"));
+
+        // Card 1: General settings
+        let gen_rect = Rect::from_min_size(Pos2::new(inner.min.x, inner.min.y + title_h + 4.0), Vec2::new(inner_w, gen_h));
+        frame(p, gen_rect, 8.0, pal.recess, pal.guide);
+        let card_pad = 10.0;
+        let row_x = gen_rect.min.x + 4.0;
+        let row_w = gen_rect.width() - 8.0;
+        let row_at = |idx: usize| Rect::from_min_size(Pos2::new(row_x, gen_rect.min.y + 4.0 + row_h * idx as f32), Vec2::new(row_w, row_h));
+        let div_at = |y: f32| {
+            p.line_segment([Pos2::new(gen_rect.min.x + card_pad, y), Pos2::new(gen_rect.max.x - card_pad, y)], Stroke::new(1.0, pal.guide));
+        };
+
+        // Row 1: Notification sounds + inline Test pill + switch
+        let r1 = row_at(0);
+        let test_label = t!("▶ Test");
+        let test_w = super::text_w(p, test_label, theme::meta(10.5)) + 14.0;
+        let sw1 = Rect::from_center_size(Pos2::new(r1.max.x - 22.0, r1.center().y), Vec2::new(30.0, 17.0));
+        let test_rect = Rect::from_center_size(Pos2::new(sw1.min.x - 8.0 - test_w * 0.5, r1.center().y), Vec2::new(test_w, 20.0));
+        let test_resp = super::clickable(ui, test_rect, Id::new("setting-test-sound"));
+        let row1_resp = super::clickable(ui, r1.with_max_x(test_rect.min.x - 4.0), Id::new("setting-sound"));
+        if row1_resp.hovered() {
+            p.rect_filled(r1, 5.0, pal.hover);
         }
-        text_in(p, item.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Notification sounds"), theme::ui(12.0), pal.text);
-        let cb = Rect::from_center_size(Pos2::new(item.max.x - 15.0, item.center().y), Vec2::splat(14.0));
-        checkbox(p, cb, sound);
-        if r.clicked() {
+        text_in(p, r1.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Notification sounds"), theme::ui(12.0), pal.text);
+        p.rect(
+            test_rect,
+            10.0,
+            if test_resp.hovered() { pal.selected } else { pal.chip },
+            Stroke::new(1.0, pal.guide),
+            egui::StrokeKind::Inside,
+        );
+        text_in(
+            p,
+            test_rect,
+            Align2::CENTER_CENTER,
+            test_label,
+            theme::meta(10.5),
+            if test_resp.hovered() { pal.text_strong } else { pal.text_2 },
+        );
+        toggle_switch(p, sw1, sound);
+        if test_resp.clicked() {
+            test = true;
+        }
+        if row1_resp.clicked() {
             toggle = true;
         }
+        div_at(r1.max.y);
 
-        // Item 2: open agent tabs
-        let item2 = Rect::from_min_size(Pos2::new(inner.min.x, item.max.y), Vec2::new(inner.width(), item_h));
-        let r = super::clickable(ui, item2, Id::new("setting-auto-tabs"));
-        if r.hovered() {
-            p.rect_filled(item2, 5.0, pal.hover);
+        // Row 2: Open agent tabs
+        let r2 = row_at(1);
+        let row2_resp = super::clickable(ui, r2, Id::new("setting-auto-tabs"));
+        if row2_resp.hovered() {
+            p.rect_filled(r2, 5.0, pal.hover);
         }
-        text_in(p, item2.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Open agent tabs"), theme::ui(12.0), pal.text);
-        let cb2 = Rect::from_center_size(Pos2::new(item2.max.x - 15.0, item2.center().y), Vec2::splat(14.0));
-        checkbox(p, cb2, auto_tabs);
-        if r.clicked() {
+        text_in(p, r2.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Open agent tabs"), theme::ui(12.0), pal.text);
+        toggle_switch(p, Rect::from_center_size(Pos2::new(r2.max.x - 22.0, r2.center().y), Vec2::new(30.0, 17.0)), auto_tabs);
+        if row2_resp.clicked() {
             toggle_tabs = true;
         }
+        div_at(r2.max.y);
 
-        // Item 3: app shortcuts above the terminal
-        let item3 = Rect::from_min_size(Pos2::new(inner.min.x, item2.max.y), Vec2::new(inner.width(), item_h));
-        let r = super::clickable(ui, item3, Id::new("setting-app-keys"));
-        if r.hovered() {
-            p.rect_filled(item3, 5.0, pal.hover);
+        // Row 3: App shortcuts above the terminal
+        let r3 = row_at(2);
+        let row3_resp = super::clickable(ui, r3, Id::new("setting-app-keys"));
+        if row3_resp.hovered() {
+            p.rect_filled(r3, 5.0, pal.hover);
         }
         text_in(
             p,
-            item3.shrink2(Vec2::new(8.0, 0.0)),
+            Rect::from_min_max(Pos2::new(r3.min.x + 8.0, r3.min.y), Pos2::new(r3.max.x - 44.0, r3.max.y)),
             Align2::LEFT_CENTER,
             t!("App shortcuts above the terminal"),
             theme::ui(12.0),
             pal.text,
         );
-        let cb3 = Rect::from_center_size(Pos2::new(item3.max.x - 15.0, item3.center().y), Vec2::splat(14.0));
-        checkbox(p, cb3, app_keys);
-        if r.clicked() {
+        toggle_switch(p, Rect::from_center_size(Pos2::new(r3.max.x - 22.0, r3.center().y), Vec2::new(30.0, 17.0)), app_keys);
+        if row3_resp.clicked() {
             toggle_keys = true;
         }
-        super::tip(r, t!("On: Ctrl+B belongs to the app even when the terminal is focused. Off: it goes to the terminal (tmux prefix)."));
+        super::tip(
+            row3_resp,
+            t!("On: Ctrl+B belongs to the app even when the terminal is focused. Off: it goes to the terminal (tmux prefix)."),
+        );
+        div_at(r3.max.y);
 
-        // Item 4: language. The language names stay in their own language, so anyone can find theirs.
-        let item4 = Rect::from_min_size(Pos2::new(inner.min.x, item3.max.y), Vec2::new(inner.width(), item_h));
-        text_in(p, item4.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Language"), theme::ui(12.0), pal.text);
-        let seg =
-            Rect::from_min_max(Pos2::new(item4.max.x - 4.0 - 140.0, item4.min.y + 2.0), Pos2::new(item4.max.x - 4.0, item4.max.y - 2.0));
+        // Row 4: Language
+        let r4 = row_at(3);
+        text_in(p, r4.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Language"), theme::ui(12.0), pal.text);
+        let seg = Rect::from_min_max(Pos2::new(r4.max.x - 6.0 - 144.0, r4.min.y + 4.0), Pos2::new(r4.max.x - 6.0, r4.max.y - 4.0));
         const LANGS: [Lang; 2] = [Lang::En, Lang::PtBr];
         let selected = LANGS.iter().position(|&l| l == current_lang).unwrap_or(0);
         if let Some(i) = super::segmented(ui, seg, Id::new("setting-language"), &["English", "Português"], selected, false) {
             language = Some(LANGS[i]);
         }
 
-        // Dictation: the language Whisper hears, and translating into English.
-        separator(p, Pos2::new(inner.min.x + 4.0, item4.max.y + 6.5), Pos2::new(inner.max.x - 4.0, item4.max.y + 6.5));
-        let dict = Rect::from_min_size(Pos2::new(inner.min.x, item4.max.y + 13.0), Vec2::new(inner.width(), title_h));
-        section_label(p, Rect::from_min_size(Pos2::new(label_x, dict.min.y), Vec2::new(rect.width(), title_h)), t!("DICTATION"));
-        let cell_w = (inner.width() - 4.0) / 3.0;
-        let grid_top = dict.max.y;
+        // Card 2: Voice dictation
+        let dict_rect = Rect::from_min_size(Pos2::new(inner.min.x, gen_rect.max.y + 10.0), Vec2::new(inner_w, dict_h));
+        frame(p, dict_rect, 8.0, pal.recess, pal.guide);
+
+        // Dictation header + status pill
+        let dh =
+            Rect::from_min_size(Pos2::new(dict_rect.min.x + 12.0, dict_rect.min.y + 8.0), Vec2::new(dict_rect.width() - 24.0, dict_hdr_h));
+        section_label(p, Rect::from_min_size(Pos2::new(dh.min.x - 10.0, dh.min.y), Vec2::new(dh.width(), dh.height())), t!("DICTATION"));
+        let (status, status_color) = match setup {
+            Setup::Ready => (t!("installed"), pal.success),
+            Setup::Downloading => (t!("downloading…"), pal.info),
+            Setup::NotInstalled => (t!("not installed"), pal.text_3),
+        };
+        let badge_w = super::text_w(p, status, theme::meta(10.5)) + 14.0;
+        let badge = Rect::from_center_size(Pos2::new(dh.max.x - badge_w * 0.5, dh.center().y), Vec2::new(badge_w, 18.0));
+        p.rect_filled(badge, 9.0, theme::with_alpha(status_color, 0.14));
+        text_in(p, badge, Align2::CENTER_CENTER, status, theme::meta(10.5), status_color);
+
+        // 3x3 spoken language grid
+        let grid_x = dict_rect.min.x + 10.0;
+        let grid_w = dict_rect.width() - 20.0;
+        let cell_w = (grid_w - chip_gap * 2.0) / 3.0;
+        let grid_top = dh.max.y + 4.0;
         for (i, (code, name)) in SPOKEN.iter().enumerate() {
+            let col = (i % 3) as f32;
+            let row_i = (i / 3) as f32;
             let cell = Rect::from_min_size(
-                Pos2::new(inner.min.x + 2.0 + cell_w * (i % 3) as f32, grid_top + chip_h * (i / 3) as f32),
+                Pos2::new(grid_x + (cell_w + chip_gap) * col, grid_top + (chip_h + chip_gap) * row_i),
                 Vec2::new(cell_w, chip_h),
-            )
-            .shrink2(Vec2::new(1.0, 1.0));
+            );
             let on = whisper_lang == *code;
             let r = super::clickable(ui, cell, Id::new(("setting-spoken", *code)));
             if on {
-                p.rect_filled(cell, 5.0, theme::accent_soft(theme::accent()));
-            } else if r.hovered() {
-                p.rect_filled(cell, 5.0, pal.hover);
+                p.rect(
+                    cell,
+                    6.0,
+                    theme::accent_soft(theme::accent()),
+                    Stroke::new(1.0, theme::accent_edge(theme::accent())),
+                    egui::StrokeKind::Inside,
+                );
+            } else {
+                p.rect_filled(cell, 6.0, if r.hovered() { pal.selected } else { pal.chip });
             }
             let label = match *code {
                 "auto" => t!("Auto-detect"),
@@ -599,85 +609,99 @@ pub fn settings_menu(deck: &mut Deck, ctx: &egui::Context, anchor: Rect) {
                 "zh" => t!("Chinese"),
                 _ => name,
             };
-            text_in(p, cell, Align2::CENTER_CENTER, label, theme::ui(11.5), if on { pal.text_strong } else { pal.text });
+            text_in(
+                p,
+                cell,
+                Align2::CENTER_CENTER,
+                label,
+                if on { theme::ui_medium(11.5) } else { theme::ui(11.5) },
+                if on {
+                    pal.text_strong
+                } else if r.hovered() {
+                    pal.text
+                } else {
+                    pal.text_2
+                },
+            );
             if r.clicked() {
                 spoken = Some(*code);
             }
         }
-        let tr_row = Rect::from_min_size(Pos2::new(inner.min.x, grid_top + chip_h * 3.0 + 4.0), Vec2::new(inner.width(), item_h));
-        let r = super::clickable(ui, tr_row, Id::new("setting-translate"));
-        if r.hovered() {
-            p.rect_filled(tr_row, 5.0, pal.hover);
+
+        // Translate to English row + subtitle
+        let tr_box =
+            Rect::from_min_size(Pos2::new(dict_rect.min.x + 4.0, grid_top + grid_h + 8.0), Vec2::new(dict_rect.width() - 8.0, tr_h));
+        let tr_resp = super::clickable(ui, tr_box, Id::new("setting-translate"));
+        if tr_resp.hovered() {
+            p.rect_filled(tr_box, 5.0, pal.hover);
         }
-        text_in(p, tr_row.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Translate to English"), theme::ui(12.0), pal.text);
-        checkbox(p, Rect::from_center_size(Pos2::new(tr_row.max.x - 15.0, tr_row.center().y), Vec2::splat(14.0)), translate);
-        if r.clicked() {
-            toggle_translate = true;
-        }
-        super::tip(r, t!("Whisper only translates into English."));
-        let engine = if engine_label.is_empty() { t!("unavailable").to_owned() } else { engine_label };
-        let hint = Rect::from_min_size(Pos2::new(inner.min.x + 8.0, tr_row.max.y + 2.0), Vec2::new(inner.width() - 16.0, 26.0));
         text_in(
             p,
-            hint.with_max_y(hint.min.y + 13.0),
+            Rect::from_min_size(Pos2::new(tr_box.min.x + 8.0, tr_box.min.y + 4.0), Vec2::new(tr_box.width() - 52.0, 18.0)),
+            Align2::LEFT_CENTER,
+            t!("Translate to English"),
+            theme::ui(12.0),
+            pal.text,
+        );
+        text_in(
+            p,
+            Rect::from_min_size(Pos2::new(tr_box.min.x + 8.0, tr_box.min.y + 22.0), Vec2::new(tr_box.width() - 52.0, 16.0)),
             Align2::LEFT_CENTER,
             t!("Speak in any language, get English text"),
-            theme::ui(10.5),
+            theme::meta(10.5),
             pal.text_3,
         );
-        let engine_line = t!("Engine: {engine} · {model}", engine, model = holt_core::whisper::model_name());
-        text_in(p, hint.with_min_y(hint.min.y + 13.0), Align2::LEFT_CENTER, &engine_line, theme::ui(10.5), pal.text_3);
-
-        separator(p, Pos2::new(inner.min.x + 4.0, item4.max.y + dict_h - 6.5), Pos2::new(inner.max.x - 4.0, item4.max.y + dict_h - 6.5));
-
-        // ▶ Test sound
-        let btn = Rect::from_min_size(Pos2::new(inner.min.x + 2.0, item4.max.y + dict_h), Vec2::new(inner.width() - 4.0, btn_h));
-        if button(ui, btn, Id::new("setting-test-sound"), t!("▶ Test sound"), ButtonKind::Secondary).clicked() {
-            test = true;
+        toggle_switch(p, Rect::from_center_size(Pos2::new(tr_box.max.x - 22.0, tr_box.min.y + 15.0), Vec2::new(30.0, 17.0)), translate);
+        if tr_resp.clicked() {
+            toggle_translate = true;
         }
+        super::tip(tr_resp, t!("Whisper only translates into English."));
 
-        // Voice dictation (local Whisper): download it later, or delete it to free the space.
-        separator(p, Pos2::new(inner.min.x + 4.0, btn.max.y + 6.5), Pos2::new(inner.max.x - 4.0, btn.max.y + 6.5));
-        let row = Rect::from_min_size(Pos2::new(inner.min.x, btn.max.y + 13.0), Vec2::new(inner.width(), item_h));
-        text_in(p, row.shrink2(Vec2::new(8.0, 0.0)), Align2::LEFT_CENTER, t!("Voice dictation"), theme::ui(12.0), pal.text);
-        let (status, status_color) = match setup {
-            Setup::Ready => (t!("installed"), pal.success),
-            Setup::Downloading => (t!("downloading…"), pal.text_3),
-            Setup::NotInstalled => (t!("not installed"), pal.text_3),
-        };
-        text_in(p, row.shrink2(Vec2::new(8.0, 0.0)), Align2::RIGHT_CENTER, status, theme::meta(10.5), status_color);
-        let action = Rect::from_min_size(Pos2::new(inner.min.x + 2.0, row.max.y), Vec2::new(inner.width() - 4.0, btn_h));
+        // Dictation footer: engine info + compact action button
+        let div_y = tr_box.max.y + 4.0;
+        p.line_segment(
+            [Pos2::new(dict_rect.min.x + card_pad, div_y), Pos2::new(dict_rect.max.x - card_pad, div_y)],
+            Stroke::new(1.0, pal.guide),
+        );
+        let foot = Rect::from_min_size(Pos2::new(dict_rect.min.x + 10.0, div_y + 6.0), Vec2::new(dict_rect.width() - 20.0, footer_h - 4.0));
+        let engine = if engine_label.is_empty() { t!("unavailable").to_owned() } else { engine_label };
+        let engine_line = t!("Engine: {engine} · {model}", engine, model = holt_core::whisper::model_name());
         let id = Id::new("setting-dictation");
         let size = crate::dictation::download_size();
         match setup {
             Setup::Downloading => {
-                text_in(
-                    p,
-                    action.shrink2(Vec2::new(6.0, 0.0)),
-                    Align2::LEFT_CENTER,
-                    t!("Progress is shown in the right bar."),
-                    theme::ui(11.5),
-                    pal.text_3,
-                );
+                text_in(p, foot, Align2::LEFT_CENTER, t!("Progress is shown in the right bar."), theme::meta(11.0), pal.text_3);
             }
             Setup::NotInstalled => {
-                let r = button(ui, action, id, &t!("Download ({size})", size), ButtonKind::Secondary);
+                let lbl = t!("Download ({size})", size);
+                let bw = super::button_width(p, &lbl, ButtonKind::Secondary);
+                let br = Rect::from_min_size(Pos2::new(foot.max.x - bw, foot.center().y - 12.0), Vec2::new(bw, 24.0));
+                let g = super::galley_trunc(p, &engine_line, theme::meta(10.5), pal.text_3, (br.min.x - foot.min.x - 8.0).max(40.0));
+                super::place(p, foot.with_max_x(br.min.x - 6.0), Align2::LEFT_CENTER, g, pal.text_3);
+                let r = button(ui, br, id, &lbl, ButtonKind::Secondary);
                 dictation_click |= super::tip(r, t!("Downloads Whisper for voice dictation; the audio stays on this computer.")).clicked();
             }
             Setup::Ready if confirm_remove => {
-                let r = button_danger(ui, action, id, t!("Confirm: delete from disk"));
+                let lbl = t!("Confirm: delete from disk");
+                let bw = super::button_width(p, lbl, ButtonKind::Secondary);
+                let br = Rect::from_min_size(Pos2::new(foot.max.x - bw, foot.center().y - 12.0), Vec2::new(bw, 24.0));
+                let g = super::galley_trunc(p, &engine_line, theme::meta(10.5), pal.text_3, (br.min.x - foot.min.x - 8.0).max(40.0));
+                super::place(p, foot.with_max_x(br.min.x - 6.0), Align2::LEFT_CENTER, g, pal.text_3);
+                let r = button_danger(ui, br, id, lbl);
                 dictation_click |= super::tip(r, t!("Deletes the model and the CUDA engine. You can download them again later.")).clicked();
             }
             Setup::Ready => {
-                let r = button(ui, action, id, t!("Remove from disk"), ButtonKind::Secondary);
+                let lbl = t!("Remove from disk");
+                let bw = super::button_width(p, lbl, ButtonKind::Secondary);
+                let br = Rect::from_min_size(Pos2::new(foot.max.x - bw, foot.center().y - 12.0), Vec2::new(bw, 24.0));
+                let g = super::galley_trunc(p, &engine_line, theme::meta(10.5), pal.text_3, (br.min.x - foot.min.x - 8.0).max(40.0));
+                super::place(p, foot.with_max_x(br.min.x - 6.0), Align2::LEFT_CENTER, g, pal.text_3);
+                let r = button(ui, br, id, lbl, ButtonKind::Secondary);
                 dictation_click |=
                     super::tip(r, t!("Deletes Whisper ({size}) to free up space; you can download it again.", size)).clicked();
             }
         }
     });
-    if let Some(org) = layout {
-        deck.set_organization(org);
-    }
     if toggle {
         deck.sound_enabled = !deck.sound_enabled;
         let v = deck.sound_enabled;
@@ -740,20 +764,18 @@ const SPOKEN: [(&str, &str); 9] = [
     ("zh", "Chinese"),
 ];
 
-/// Checkbox with a dynamic `accent-color`.
-fn checkbox(p: &egui::Painter, r: Rect, checked: bool) {
+/// Pill toggle switch with a dynamic `accent-color` when on.
+fn toggle_switch(p: &egui::Painter, r: Rect, on: bool) {
     let pal = theme::pal();
-    if checked {
-        p.rect_filled(r, 3.0, theme::accent());
-        let s = Stroke::new(1.8, pal.on_accent);
-        let a = Pos2::new(r.min.x + 3.0, r.center().y + 0.5);
-        let b = Pos2::new(r.min.x + 6.0, r.max.y - 3.5);
-        let c = Pos2::new(r.max.x - 3.0, r.min.y + 3.5);
-        p.line_segment([a, b], s);
-        p.line_segment([b, c], s);
+    let radius = r.height() * 0.5;
+    if on {
+        p.rect_filled(r, radius, theme::accent());
     } else {
-        p.rect(r, 3.0, pal.recess, Stroke::new(1.0, pal.separator), egui::StrokeKind::Inside);
+        p.rect(r, radius, pal.chip, Stroke::new(1.0, pal.guide), egui::StrokeKind::Inside);
     }
+    let knob_r = (r.height() - 4.0) * 0.5;
+    let cx = if on { r.max.x - 2.0 - knob_r } else { r.min.x + 2.0 + knob_r };
+    p.circle_filled(Pos2::new(cx, r.center().y), knob_r, if on { pal.on_accent } else { pal.text_soft });
 }
 
 /// Context menu on a right click on a tab.

@@ -5,9 +5,6 @@
 
 pub const ENTRIES: &[(&str, &str)] = &[
     // Sidebar
-    ("Tabs", "Abas"),
-    ("Split", "Dividida"),
-    ("Highlight", "Destaque"),
     ("Tabs: one window at a time", "Abas: uma janela por vez"),
     ("Split: windows side by side", "Dividida: janelas lado a lado"),
     ("Highlight: one big window, the others small", "Destaque: uma janela grande, as outras pequenas"),

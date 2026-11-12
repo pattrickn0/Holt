@@ -177,16 +177,7 @@ pub fn layout_label_fits(row_w: f32, label_w: f32) -> bool {
     row_w >= LAYOUT_MARGIN + label_w + LAYOUT_LABEL_GAP + ORG_TRACK_W + LAYOUT_MARGIN
 }
 
-/// Name of a window organization (the switch's tooltips' title and the ☰ Layout menu items).
-pub fn org_name(org: Organization) -> &'static str {
-    match org {
-        Organization::Tabs => t!("Tabs"),
-        Organization::Split => t!("Split"),
-        Organization::Highlight => t!("Highlight"),
-    }
-}
-
-/// What choosing an organization does (tooltips and the ☰ Layout menu).
+/// What choosing an organization does (tooltips on the `LAYOUT` switch).
 pub fn org_effect(org: Organization) -> &'static str {
     match org {
         Organization::Tabs => t!("Tabs: one window at a time"),
