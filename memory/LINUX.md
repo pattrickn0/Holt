@@ -17,7 +17,7 @@ There was no Linux machine, WSL, or Docker on this machine, so verification was:
 
 1. **GitHub CI** (repository `pattrickn0/Holt`), reading Ubuntu and Windows job logs via the
    `/actions/jobs/<id>/logs` endpoint, plus the workflow runs API.
-2. **Code review** of everything that has platform-specific paths: `process.rs`, `paths.rs`, `agents.rs`, `git.rs`,
+2. **Code review** of everything that has platform-specific paths: `process.rs`, `paths.rs`, `agents/`, `git/`,
    `github.rs`, `workspace.rs`, `whisper.rs`, `download.rs`, `usage/*`, `theme.rs`, `terminal/*`, `ui/projects.rs`,
    `main.rs`, `crash.rs`, and tests with `#[cfg(unix)]`.
 3. **Verification of downloaded artifacts**: names and SHA-256 hashes of whisper.cpp packages in release `b5454` match
@@ -253,7 +253,7 @@ Run in a separate data folder to avoid affecting real configuration:
 **Interface**
 
 - [ ] Sidebar, right panel, tabs, menus, and modals render without clipped text or overlap.
-- [ ] Drag dividers, switch to ORGANIZATION/Focus, and toggle Documents (Ctrl+Shift+D).
+- [ ] Drag dividers, switch LAYOUT (`Tabs | Split | Highlight`), and toggle Documents (Ctrl+Shift+D).
 - [ ] Open a folder via button (requires `xdg-open`) and pick a file in the dialog (requires portal).
 - [ ] Copy and paste (Ctrl+C/Ctrl+V) between the app and another program; paste an image as an attachment.
 - [ ] Git tab (status, diff, history, stash) and GitHub tab (PRs, issues, Actions) in a real repository.

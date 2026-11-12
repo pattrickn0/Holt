@@ -25,4 +25,4 @@ reviews what is critical); a defect found that way becomes an item here. Product
 
 ## Later (on the list, not yet)
 
-5. [ ] **Installer for Windows** (0.4).
+3. [ ] **Installer for Windows** (0.4).

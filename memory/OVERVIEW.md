@@ -23,7 +23,7 @@ with it, and **which rules each document defines**. Technical details are in the
 
 Native desktop terminal in Rust (winit + egui). There are two executables, which must remain **in the same folder**:
 
-- `holt` (crate `app`): the window, the terminal tabs, and the right sidebar (tasks desk, integrated Conversation,
+- `holt` (crate `app`): the window, the terminal tabs, and the right sidebar (tasks desk,
   Git, and GitHub);
 - `ask-agent` (crate `cli`): the command agents use to talk to each other and operate tasks.
 
@@ -93,7 +93,7 @@ Inside a task, every exchange appears in the task's **timeline**; system notices
 | Area | What it has |
 | :-- | :-- |
 | Title bar | custom (no system title bar): ☰ (settings), collapse sidebar, brand and "Holt", `/ <project>` and branch chip (with the sidebar collapsed, the compact **Agents \| Documents toggle** appears right after); on the right, **usage for each agent with quota** (logo + 5h session and weekly bars; amber starting at 80%, red at 100%; hovering opens the **usage panel** with groups and renewal times) the **notifications bell** (count of unread warnings and errors; opens the history of the last 100 notices, and task notices open their task), and minimize/maximize/close. Notices also show as **toasts** in the bottom-right corner (info and success leave after 6 s, warnings after 10 s, errors stay until closed; hover holds them) |
-| Left sidebar | the **Agents \| Documents toggle** at the top, **PROJECTS** (each project with its agents in a tree and model on the right; the active one has "+ New agent"; "+" in the header opens a folder as a project; right-click renames, opens folder, or removes), **ORGANIZATION** (`Tabs \| Split \| Highlight`), and **FILES**, the explorer (with Git status letter, refresh, and collapse all); collapses with `Ctrl+B` |
+| Left sidebar | the **Agents \| Documents toggle** at the top, **PROJECTS** (each project with its agents in a tree and model on the right; the active one has "+ New agent"; "+" in the header opens a folder as a project; right-click renames, opens folder, or removes), **FILES**, the explorer (with Git status letter, Filter, Changed only, and Collapse all; Refresh in right-click menu), and **LAYOUT** (`Tabs \| Split \| Highlight`) pinned at the bottom; collapses with `Ctrl+B` |
 | Center | two views (`Ctrl+Shift+D`): **Agents** (terminals organized in Tabs, Split, or Highlight; in each pane header are tabs, `⋮⋮` handle, microphone, attachment, and "+") and **Documents** (diff, editable files, and markdown occupying the entire center) |
 | Right sidebar | **fixed, does not collapse**; width adjustable via border. Three tabs at the top: **Tasks** (the first; badge counts review + validation), **Git**, and **GitHub** (with open PR count) |
 
@@ -168,7 +168,7 @@ of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Talk to an agent via its tab's terminal, reference files (`@file`), attach files/images (button, drag-and-drop,
   or `Ctrl+V`), and use **voice dictation** (`Ctrl+Shift+M` or microphone icon, via local whisper.cpp; ☰ Settings → Dictation sets the spoken language
   or auto-detect, and translating into English).
-- Follow inter-agent conversations in the integrated Conversation (read-only) and intervene directly in terminals.
+- Follow task inter-agent messages in the task's **Timeline** and intervene directly in terminals.
 - Read and edit project files with syntax highlighting and search, or read diffs and reports full-width in
   **Documents** mode (`Ctrl+Shift+D`).
 - Create and manage **tasks** in the Tasks tab (with level, model, effort, scope with automatic queue, diff review,
@@ -200,7 +200,7 @@ of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
 | `ask-agent --task done <id> -\|"report"\|--file <file>` | task agent submits report and puts it in review (also valid in validation if new commits exist) |
 | `ask-agent --task return <id> "feedback"\|--file <file>` | returns task in review to agent with adjustments (including learnings from files mentioned in feedback) |
 | `ask-agent --task reject <id> "reason"\|--file <file>\|-` | rejects task waiting for validation and returns it to the same agent in the same worktree |
-| `ask-agent --signal busy\|idle` | internal use by turn start/end hooks (always exits 0) |
+| `ask-agent --signal busy\|idle\|tool\|session [<id>]` | internal use by hooks and `notify` (always exits 0) |
 | `ask-agent --usage` | internal use by Claude's statusline (sends plan usage to bridge) |
 | `ask-agent --help` (`-h`) | prints summary of all commands above |
 

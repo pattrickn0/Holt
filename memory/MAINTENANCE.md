@@ -34,7 +34,7 @@ crates/
 ├── core/   (holt-core)   "backend": no graphical interface
 │   ├── lib.rs        Core: the API used by the UI (like IPC channels)
 │   ├── events.rs     CoreEvent: what the backend reports to the UI
-│   ├── agents.rs     agent list, where to find each CLI, command for each tab, bridge instructions
+│   ├── agents/       agent list (`defs.rs`), resolution (`resolve.rs`), spawn specs (`spawn.rs`), hooks, env, local models, and bridge instructions
 │   ├── trust.rs      folder trust per CLI before opening tab (Claude, Codex, Antigravity)
 │   ├── bridge.rs     local HTTP server used by ask-agent (/agents, /models, /team, /ask, /reply, /signal, /usage, /learn, /outline, /inbox, /mail, /tasks, /activate)
 │   ├── exchange.rs   inter-tab questions awaiting reply (cycles, depth, reply by number)
@@ -57,7 +57,7 @@ crates/
 │   ├── whisper.rs    voice transcription (whisper.cpp); download.rs downloads engine and model
 │   ├── usage.rs      plan usage (session and week); usage/codex.rs and usage/antigravity.rs read each source
 │   ├── context.rs    extension point for RAG (ContextProvider; headless queries it)
-│   ├── git.rs        workspace git: parse status/diff/branches (pure, with tests) and operations
+│   ├── git/          workspace git: parse status/diff/branches (`parse.rs`, pure, with tests) and operations (`status.rs`, `remote.rs`, `branches.rs`, `stash.rs`, `history.rs`, `merge.rs`, `exec.rs`)
 │   ├── github.rs     GitHub (PRs, issues, Actions): remote → owner/repo, credential helper token, REST API, parse (pure, with tests)
 │   ├── workspace.rs  working folder: tree listing, AGENTS.md, watcher, `resolve_workspace_path`, `read_text`, and `write_text` (text file up to 1 MB for Documents mode; with `safe_rel` and symlink check)
 │   ├── activation.rs activation of live instance on second launch (`data/.holt.bridge` → `POST /activate`)
@@ -83,7 +83,7 @@ crates/
 │   ├── terminal/     terminal emulator: mod.rs (pty + alacritty_terminal), view.rs (drawing and mouse), input.rs (keyboard), colors.rs (palette), record.rs (PTY recording for debugging: tab menu or `HOLT_DEBUG_PTY=1`), resize.rs (resizing as ConPTY expects)
 │   ├── git_ui.rs     state and actions for Git tab (sections, topbar chip, reloads)
 │   ├── github_ui.rs  state and actions for GitHub tab (core events, selection, "Send to agent" menu, demo data)
-│   ├── tasks_ui.rs   state and actions for Tasks tab (list, detail, form, thread calls to core) and pure functions (lanes, state marks, lifecycle track, timeline, diff summary, texts, buttons per state), with tests; demo data
+│   ├── tasks_ui/     state and actions for Tasks tab (list, detail, form, thread calls to core) and pure functions (lanes, state marks, lifecycle track, timeline, diff summary, texts, buttons per state), with tests; demo data
 │   ├── notices.rs    system notices: the history (100), the toasts' clock and which feed entries become notices, with tests
 │   ├── tasks_flow_tests.rs   desk Deck end-to-end with real core and git (create, start, review, return, merge, validate, discard, reopen tab)
 │   ├── docs.rs       center Documents mode: `CenterView`, `DocKind`/`DocTab`/`DocState` (including `Source`, editable file, and `Find`, search), `Docs` (open, focus, close, duplicate, per project), file list of a diff (`diff_files`), toggle badge (`Badge`), and in `impl Deck`, open each document type and read off UI thread (`UiMsg::Doc`); pure tests
@@ -98,9 +98,9 @@ crates/
 │       ├── panes.rs (split panes: header with handle, mic, attachment, and "+") + tabs.rs (tab strip: gradient, ‹ › arrows, ▾ menu; renders list of `Item`, serves agent tabs and document tabs)
 │       ├── docs.rs (Documents mode: Agents | Documents toggle (`switch`, drawn by sidebar or, when collapsed, by title bar), document strip, diff with file list, text file, edit notice, search and save prompt, and markdown)
 │       ├── code.rs (file as code: editor on `TextEdit` and large file rendered line by line), diff_view.rs (diff rendering with line wrapping, highlighting, and search), select.rs (text selection for custom-rendered screens)
-│       ├── sidebar.rs (toggle, ORGANIZATION, and FILES) + projects.rs (projects and agents tree; `model_tag` shortens model name)
+│       ├── sidebar.rs (toggle, PROJECTS, FILES, and LAYOUT) + projects.rs (projects and agents tree; `model_tag` shortens model name)
 │       ├── right_panel.rs (right sidebar: Tasks/Git/GitHub and the download strip)
-│       ├── tasks.rs (Tasks tab), git.rs + git_views.rs (Git tab), github.rs (GitHub tab)
+│       ├── tasks/ (Tasks tab: `list.rs`, `detail.rs`, `form.rs`, `widgets.rs`), git.rs + git_views.rs (Git tab), github.rs (GitHub tab)
 │       └── menus.rs (new tab, settings), shortcuts.rs (shortcuts), overlay.rs (drag-and-drop overlay), empty_state.rs (no open agent)
 └── cli/    (holt-cli)    ask-agent
     ├── src/bin/ask-agent.rs     the agent command (`parse_task`, `learn_command`, `outline_command`, `models_command`, `inbox_command`, `read_command`, with tests)
@@ -173,7 +173,7 @@ ignored with a log warning, and the test `every_learning_in_the_repository_is_va
 validation or if a literal `touches` points to a non-existent file.
 
 **Working on tasks.** Model and lifecycle live in `crates/core/src/tasks/` (`mod.rs`, `lifecycle.rs`, `merge.rs`, `finish.rs`,
-`store.rs`, `text.rs`, `git_ops.rs`, and `stash.rs`, plus `scope.rs` and `capability.rs`; git uses the safe runner in `git.rs`); routes
+`store.rs`, `text.rs`, `git_ops.rs`, and `stash.rs`, plus `scope.rs` and `capability.rs`; git uses the safe runner in `git/` (`git/exec.rs`)); routes
 and permissions live in `bridge.rs` (`tasks_route`, `task_permission`); the command lives in `crates/cli/src/bin/ask-agent.rs` (`parse_task`, with
 tests). Pure text (slug, branch, agent messages, `exclude`) has tests in `tasks/mod.rs` and `tasks/text.rs`; flow with real git
 in `tests/tasks.rs`, `tests/tasks_bridge.rs`, and `tests/tasks_queue.rs` (fixture in `tests/support/tasks_env.rs`; git identity
