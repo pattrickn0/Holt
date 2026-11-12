@@ -15,8 +15,7 @@ reviews what is critical); a defect found that way becomes an item here. Product
    "Record the terminal (diagnostics)" in the tab menu and send `data/pty/`), the document editor (`t39`), quota refusal
    (`ask-agent --models antigravity`, `--team`), and choice by model capability (`t52`: task level, "capability" block in
    `--models`). When the metric has enough tasks, review the `capability.json` table and default models per agent
-   (`defaults`). Optionally rename the local folder to `~/Holt` (then rebuild so the menu entry points at the new path);
-   steps in [MAINTENANCE.md](MAINTENANCE.md), section 6.
+   (`defaults`).
 2. [ ] **Measured memory, then the graph** (T3, then T7). Automatic measurement over completed tasks: ground
    truth is learnings from files the task actually changed; prediction is what each method would deliver reading only the
    brief (today; today + one-line index of all; graph); score = hits and delivered size, with learnings as they were at the

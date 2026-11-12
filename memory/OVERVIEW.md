@@ -58,35 +58,9 @@ configuration (`{"claude@dev": "sonnet"}`; `model@role` takes precedence over `m
 
 The name is the address used by `ask-agent`. Tabs return with the same name and model when the app reopens.
 
-### The environment of each tab
+**Environment and instructions:** each tab receives `HOLT_AGENT`, `HOLT_ROLE`, `HOLT_PORT`, `HOLT_TOKEN`, `HOLT_DEPTH`, `HOLT_ASK_WAIT`, and `PATH`; Holt instructions arrive via each CLI's dedicated channel (`AGENTS.md` for CLIs without one) with folder trust pre-registered. Full details and bridge HTTP contract: [ARCHITECTURE.md](ARCHITECTURE.md).
 
-| Variable | What it is |
-| :-- | :-- |
-| `HOLT_AGENT` | instance name (`claude@dev`) |
-| `HOLT_ROLE` | role, when present |
-| `HOLT_PORT` | local HTTP bridge port (only on `127.0.0.1`) |
-| `HOLT_TOKEN` | **tab-specific** token: how the bridge knows who is asking and from which project |
-| `HOLT_DEPTH` | conversation depth (used in headless mode) |
-| `HOLT_ASK_WAIT` | how many seconds `ask-agent` waits for a response (default 90; `0` = until completion). User-configurable |
-| `PATH` | executable directory comes first, so `ask-agent` is always found |
-
-No other `HOLT_*` variable from the app environment is passed to agents. Holt instructions (with the rule
-not to use CLI-internal subagents) arrive through each CLI's dedicated channel, without depending on a user's `AGENTS.md`
-(CLIs without a dedicated flag — such as Goose, Copilot, Ollama, Mimo Code, and user-added CLIs — read the folder's `AGENTS.md`, which the app creates if missing), and folder trust is registered before opening the
-tab. Details in [ARCHITECTURE.md](ARCHITECTURE.md).
-
-### The path of an inter-agent question
-
-1. An agent runs `ask-agent claude@dev "task"`.
-2. The bridge resolves the destination in the caller's project. If the instance does not exist, its tab is opened in the background.
-3. The message is **typed into the destination tab's terminal** when it becomes free (never immediately after a user keypress;
-   with hooks in Claude and Codex, after turn end; without hooks, after 1.5 s idle or 30 s in queue).
-4. The destination agent replies with `ask-agent --reply <n> "response"`. Only that agent can reply to that question.
-5. The response returns to the caller: within 90 s it outputs to stdout of `ask-agent`; past that, `ask-agent` finishes
-   with a notice (HTTP 202) and the response is **typed later** into the caller's terminal (and remains in `ask-agent --inbox`).
-   In a `shell` tab or in headless mode, `ask-agent` waits until completion.
-
-Inside a task, every exchange appears in the task's **timeline**; system notices (errors, downloads, tasks ready) become **notifications**; and the user can intervene in any tab.
+**Inter-agent flow:** `ask-agent <agent> "msg"` opens/routes to the target in the same project, types into its terminal (or saves durable mail in `data/mail/` if >200 chars or multi-line), and returns the `--reply` on stdout (within `HOLT_ASK_WAIT`, default 90 s) or later in the terminal/`--inbox` (HTTP 202). Every task exchange is recorded in the task's **Timeline**.
 
 ### The window
 
@@ -133,22 +107,9 @@ Inside a task, every exchange appears in the task's **timeline**; system notices
   when `.git/` changes. The **GitHub** tab lists PRs (with checks), Issues, and Actions (with tail of failed job logs) from the
   `origin` remote, using login credentials from Git Credential Manager or `gh`, and allows **Send to agent**.
 
-### Limits, protections, and headless mode
+### Headless mode
 
-| Rule | Value |
-| :-- | :-- |
-| Maximum delegation depth (A → B → C; the third chained question is rejected) | 2 |
-| Wait cycle (A waits for B, which waits for A) | rejected immediately (HTTP 409) |
-| Tabs opened automatically by `ask-agent` | 8 |
-| Maximum question time | 10 min |
-| Message size / concurrent requests / total bridge body budget | 16 MB / 128 / 64 MB |
-| Text from another agent typed into a terminal | no ESC or control characters |
-| Prompt for a `.cmd` shim on Windows | passed via file, never on command line |
-| File opened in Documents mode | up to 1 MB (editable up to 256 KB / 4,000-byte lines), no null bytes |
-
-When "Run agents in tabs" is turned off in Settings, `ask-agent` runs agents in **headless mode**
-(`claude -p`, `agy -p`, `codex exec`, `opencode run`…) with a temporary token (tasks require tabs turned on). The full HTTP contract
-of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
+When "Run agents in tabs" is turned off in Settings, `ask-agent` runs agents in **headless mode** (`claude -p`, `agy -p`, `codex exec`, `opencode run`…) with a temporary token (tasks with agents require tabs turned on). Limits and the full HTTP contract live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -177,32 +138,7 @@ of the bridge is in [ARCHITECTURE.md](ARCHITECTURE.md).
   **GitHub** (PRs, issues, Actions, and sending CI failures to an agent).
 - Close the window via × to keep agents running in the **system tray**, or exit via the tray menu.
 
-**As an agent, inside a tab:**
-
-| Command | Does |
-| :-- | :-- |
-| `ask-agent <agent> "message"` | asks another agent or instance (`claude@dev`), opening its tab if it does not exist |
-| `ask-agent --new <agent> "message"` | opens another instance of the same role (`claude@dev@ana`) |
-| `ask-agent --model <model> <agent> "message"` | chooses the instance's LLM when opening it (`sonnet`, `opencode/glm-5.3-flash-free`…); combines with `--new`; error 409 if tab is already open with a different model |
-| `ask-agent --reply <n> "reply"` | replies to question number `n` |
-| `ask-agent --file <file> …` | reads message, brief, report, or feedback from a file (preserves accented characters, which PowerShell 5.1 converts to `?` on stdin `-`) |
-| `ask-agent --list` | lists available agents and open instances in the project, with model, quota notice, and cannot-answer mark |
-| `ask-agent --team` | shows your current lead and crew, with model, quota notice, and cannot-answer mark |
-| `ask-agent --models [<agent>]` | lists, per installed agent (the four official ones in order of greatest quota headroom first), models accepted by `--model` (`-free` first and marked "(free)"; OpenCode by provider), the `quota:` line for each group, the **capability** table (`simple`, `medium`, `complex`), and cannot-answer notice for CLIs without autonomous shell tools. Bridge rejects questions to agents that cannot answer (400) and to exhausted models (409) |
-| `ask-agent --boss "message"` | asks or reports to your lead |
-| `ask-agent --learn [<file>...]` | without arguments, shows global learnings (`memory/learnings/`), index of remaining ones, and **Current situation** (running tasks and latest commits); with files, shows learnings matching them and warns at the top if another running task touches them |
-| `ask-agent --outline <file>...` | shows the outline of each file (signatures and line numbers, without bodies, in Rust and Markdown) to read only the necessary snippet with offset |
-| `ask-agent --inbox [--all]` | shows replies to your questions that have not yet been delivered (or the last 20 with `--all`), marking them as delivered, and lists your unread mail |
-| `ask-agent --read <n>` | prints mail #n and marks it read. A long or multi-line message (and a long late answer) is not typed into the terminal: only a one-line notice `[mail #n from …]` is, and the text is saved in `data/mail/`. Only the addressee can read it |
-| `ask-agent --task new "title" [--agent <m>] [--model <m>] [--effort low\|medium\|high] [--level simple\|medium\|complex] [--base <branch>] [--start] [--manual] -\|"brief"\|--file <file> [--scope <path>…]` | creates a task (dedicated worktree + branch + agent; without `--agent`, chooses the one with the most quota headroom among capable models for the level); `--start` starts it immediately (or queues it if `--scope` overlaps another running/in-review task); `--manual` creates a task with no agent, worked and delivered by whoever created it (`kind`, `model` and `effort` are refused with it) |
-| `ask-agent --task list` / `show <id>` | lists project tasks / shows full detail of a task |
-| `ask-agent --task start <id>` / `merge <id>` / `validate <id>` / `discard <id>` | starts draft / merges task in review into base (`--no-ff`, moving to waiting for validation) / finishes validation and cleans up / discards and cleans up |
-| `ask-agent --task done <id> -\|"report"\|--file <file>` | task agent submits report and puts it in review (also valid in validation if new commits exist) |
-| `ask-agent --task return <id> "feedback"\|--file <file>` | returns task in review to agent with adjustments (including learnings from files mentioned in feedback) |
-| `ask-agent --task reject <id> "reason"\|--file <file>\|-` | rejects task waiting for validation and returns it to the same agent in the same worktree |
-| `ask-agent --signal busy\|idle\|tool\|session [<id>]` | internal use by hooks and `notify` (always exits 0) |
-| `ask-agent --usage` | internal use by Claude's statusline (sends plan usage to bridge) |
-| `ask-agent --help` (`-h`) | prints summary of all commands above |
+**As an agent, inside a tab:** use `ask-agent --help` for all commands (`--new`, `--model`, `--reply`, `--file`, `--list`, `--team`, `--models`, `--boss`, `--learn`, `--outline`, `--inbox`, `--read`, `--task new|list|show|start|merge|validate|discard|done|return|reject`). Usage rules are in [AGENTS.md](../AGENTS.md) and the HTTP contract is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

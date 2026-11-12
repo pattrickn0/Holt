@@ -20,7 +20,6 @@ The project's documentation and memory live in `memory/`, versioned in git. Read
 - `memory/ARCHITECTURE.md`: how the code is organized (crates, modules, flows).
 - `memory/MAINTENANCE.md`: how to build, test and maintain.
 - `memory/backlog.md`: the work left, in priority order.
-- `memory/manual-tests.md`: the manual test script on Windows.
 
 The memory works in two layers:
 

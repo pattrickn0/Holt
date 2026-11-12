@@ -1,6 +1,6 @@
 ---
 title: Antigravity quota is per model group, not per agent
-summary: Argon, other Gemini models, and Claude/GPT exhaust independently; the status bar summary (most consumed) does not indicate whether a model will respond.
+summary: Argon (and Hydrogen, if separated), other Gemini models, and Claude/GPT exhaust independently; the status bar summary (most consumed) does not indicate whether a model will respond.
 touches: [crates/core/src/usage.rs, crates/core/src/usage/antigravity.rs, crates/core/src/bridge.rs]
 ---
 On 24/10, Argon had 100% of its weekly quota consumed, "Gemini Models" (Flash) had 0.4%, and "Claude and GPT models" had

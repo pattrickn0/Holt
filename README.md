@@ -77,7 +77,7 @@ flowchart LR
 - Teams: drag one agent onto another in the sidebar to make it the boss; subordinates report with `ask-agent --boss`.
 - Plan usage in the title bar: each agent's 5-hour and weekly limits, with a warning from 80%. An exhausted model gets no requests.
 - No blocking prompts: project folders are registered as trusted in Claude Code, Codex and Antigravity, so a tab opened in the background never stalls on "Do you trust this folder?".
-- Headless mode: with agent tabs turned off, `ask-agent` runs `claude -p`, `codex exec`, `opencode run`… instead.
+- Headless mode: with "Run agents in tabs" turned off, `ask-agent` runs `claude -p`, `codex exec`, `opencode run`… instead.
 </details>
 
 <details open>
@@ -113,7 +113,7 @@ flowchart LR
 | Antigravity | Windows: `irm https://antigravity.google/cli/install.ps1 \| iex` · Linux: installer at https://antigravity.google |
 | OpenCode | `npm install -g opencode-ai` (free models included; runs local models too) |
 
-Aider, Goose, GitHub Copilot CLI, Amazon Q, Open Interpreter and a plain shell also open as tabs, with less integration.
+16+ more CLIs (Aider, Goose, GitHub Copilot CLI, Gemini, Qwen, Amazon Q, Open Interpreter, Ollama, Mimo Code, Crush, Cline, Amp, Droid, Continue, llama.cpp, Plandex, plus any custom CLI via **Add CLI…**) and a plain shell also open as tabs, with less integration.
 
 **2. Get Holt.** Download the package for your system from [Releases](https://github.com/pattrickn0/Holt/releases)
 (`windows-x64.zip` or `linux-x64.tar.gz`), unpack it anywhere you can write and run `holt`. Keep `holt` and `ask-agent`
@@ -211,8 +211,8 @@ With a terminal focused, `Ctrl+B` goes to the program in it (handy in tmux); "Ap
 - **Local bridge only.** Agent-to-agent traffic is HTTP on `127.0.0.1` with a token per tab, so one agent cannot pose as another. Text from another agent never reaches a terminal with control characters.
 - **Guard rails.** Delegation depth is capped at 2, wait cycles are refused, and at most 8 tabs open on their own.
 - **Audio is deleted** right after transcription. Attachments and long prompts are kept for the last 5 sessions only.
-- **Trust is explicit.** Opening a folder as a project registers it as trusted in Claude Code (`~/.claude.json`) and Antigravity; your home folder and drive roots never are.
-- **Where things live:** runtime data in `data/` next to the executable (or `HOLT_HOME`); settings in `~/.config/Holt/config.json` (Linux) or `%APPDATA%\Holt\config.json` (Windows).
+- **Trust is explicit.** Opening a folder as a project registers it as trusted in Claude Code (`~/.claude.json`), Codex (`-c projects`), and Antigravity; your home folder and drive roots never are.
+- **Where things live:** runtime data in `data/` next to the executable (or `~/.local/share/Holt` on Linux when the install dir is read-only, or `HOLT_HOME`); settings in `~/.config/Holt/config.json` (Linux) or `%APPDATA%\Holt\config.json` (Windows).
 
 ## Under the hood
 
@@ -225,7 +225,7 @@ read:
 
 - [OVERVIEW.md](memory/OVERVIEW.md) — start here: how the app works and the map of the docs
 - [ARCHITECTURE.md](memory/ARCHITECTURE.md) — crates, flows and the bridge's HTTP contract
-- [MAINTENANCE.md](memory/MAINTENANCE.md) — build, test, recipes, and a hands-on intro to Rust
+- [MAINTENANCE.md](memory/MAINTENANCE.md) — build, test, code map, and recipes
 - [HOLT.md](memory/HOLT.md) — vision and direction
 - [backlog.md](memory/backlog.md) · [history.md](memory/history.md) — what's next, what's done
 - [learnings/](memory/learnings/README.md) — the traps and decisions the code doesn't show

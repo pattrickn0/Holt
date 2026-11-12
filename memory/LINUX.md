@@ -1,37 +1,8 @@
-# Linux Support (Ubuntu and Fedora)
+# Linux Support (Ubuntu, Fedora, openSUSE)
 
-Verification performed in tasks `t29` (2026-10-22) and `t33` (2026-10-23). This document explains **what was checked, how**,
-what was fixed, the dependencies for each distro, and what remains unverified. The Linux check script is at the end here.
+Platform fixes, dependencies, and what remains unverified on Linux.
 
-> **Summary:** the app compiles and passes tests on Ubuntu (CI) and now also on Fedora (container job). The interface
-> was manually validated only on Ubuntu X11; Wayland and a real Fedora desktop have not yet been tested. There is no
-> package, installer, or `.desktop` file. Antigravity quota now reads the system keyring (t33), and under WSLg the
-> app opens via X11 (t33) — neither has been exercised on a real Linux machine.
->
-> **2026-10-29:** the user moved to Linux; the development machine is now **openSUSE Tumbleweed with GNOME on Wayland**
-> (not covered by CI, which runs Ubuntu and Fedora). The first real Wayland run found the bugs in section 2.9.
-
-## 1. How this verification was done
-
-There was no Linux machine, WSL, or Docker on this machine, so verification was:
-
-1. **GitHub CI** (repository `pattrickn0/Holt`), reading Ubuntu and Windows job logs via the
-   `/actions/jobs/<id>/logs` endpoint, plus the workflow runs API.
-2. **Code review** of everything that has platform-specific paths: `process.rs`, `paths.rs`, `agents/`, `git/`,
-   `github.rs`, `workspace.rs`, `whisper.rs`, `download.rs`, `usage/*`, `theme.rs`, `terminal/*`, `ui/projects.rs`,
-   `main.rs`, `crash.rs`, and tests with `#[cfg(unix)]`.
-3. **Verification of downloaded artifacts**: names and SHA-256 hashes of whisper.cpp packages in release `b5454` match
-   the constants in `whisper.rs` (Ubuntu x64 and arm64).
-4. **Dependency review** in `Cargo.lock`: no `gtk-sys`/`glib-sys` (`rfd 0.17` uses
-   `xdg-portal` + `wayland`), and `ureq` uses rustls (no OpenSSL).
-
-`cargo check --target x86_64-unknown-linux-gnu` was attempted, but stops at `ring` because there is no
-`x86_64-linux-gnu-gcc` toolchain on this machine — which is why the Linux build is verified only via CI.
-
-The Antigravity quota and WSLg (sections 2.7 and 2.8) were verified by code review and upstream sources
-(`zalando/go-keyring`, `winit` and WSLg issues). The keyring module compiles for `x86_64-unknown-linux-gnu`
-in a separate crate (as in `t29`, the workspace stops at `ring` due to the lack of a cross-gcc), and the code
-forcing X11 was verified the same way; but there was no Linux or WSL available to run the app.
+> **Summary:** CI builds and tests on Ubuntu and Fedora (container). Daily development runs on **openSUSE Tumbleweed with GNOME on Wayland**. Release builds install `holt.desktop` and the icon (`crates/app/build.rs`, `scripts/install-desktop.sh`); `.deb`/`.rpm`/Flatpak/AppImage packaging does not exist yet. Antigravity quota reads Secret Service (falling back to token files), and WSLg forces X11 (`app/src/wslg.rs`).
 
 ## 2. What was broken and got fixed
 
@@ -191,10 +162,6 @@ Agent CLIs: `npm install -g` of the same packages as Windows; Antigravity has it
 | Usage/quotas | Antigravity reads Secret Service (`service=gemini`, `username=antigravity`) and, without it, `~/.gemini/oauth_creds.json` and `~/.gemini/antigravity-cli/antigravity-oauth-token`; Codex reads `~/.codex/sessions` |
 | Interface | embedded fonts; `xdg-open` for folders; `open` (crate) for URLs |
 
-The test suite has 196 tests in app (plus 1 ignored, for real quota), 253 in core (plus 2 ignored), 31 for bridge, and
-37 for tasks, in addition to git/github tests; run locally on Windows on 10/23, all pass. On Linux, the only failing
-test was `read_dir` (fixed here); the rest ran green on Ubuntu through `run 46`.
-
 ## 5. What remains unverified (or unsupported)
 
 1. **Wayland**: runs on GNOME (section 2.9). Still to check there: the title bar after leaving maximized (reported hidden
@@ -227,56 +194,7 @@ test was `read_dir` (fixed here); the rest ran green on Ubuntu through `run 46`.
     (32 px shift), scaling (always 1, small UI on 4K), drag/resize, cursor, and Antigravity quota read from the keyring
     there. `WINIT_UNIX_BACKEND=wayland` reproduces the broken path, for comparison.
 
-## 6. Manual test script (Ubuntu and Fedora)
-
-Run in a separate data folder to avoid affecting real configuration:
-`HOLT_HOME=/tmp/holt-test ./target/release/holt`.
-
-**Installation and launch**
-
-- [ ] `cargo build --workspace --release` completes without error (Ubuntu and Fedora).
-- [ ] App opens on X11 and Wayland (GNOME and KDE, if possible), with correct window size and DPI.
-- [ ] Terminal in the “Terminal” tab opens `$SHELL`, accepts accents and colors, and resizes without breaking line wraps.
-- [ ] Closing the app and reopening preserves projects, tabs, and sizes; opening a second instance in the same folder
-      warns that it is already in use; with a different `HOLT_HOME`, opens both.
-
-**Agents and memory**
-
-- [ ] The “+ New agent” menu lists installed CLIs, and each agent's card opens the correct tab.
-- [ ] `ask-agent --list`, `--team`, `--models` work in a terminal outside the app.
-- [ ] `ask-agent claude "..."` in a tab and the typed response arrive; inside a task, its Timeline shows the pair.
-- [ ] Create a task (`--task new ... --start`), inspect the worktree, submit with `--task done`, and read the report.
-- [ ] `ask-agent --learn` displays learnings; project `AGENTS.md` is updated only where it already existed.
-- [ ] Antigravity quota appears in the titlebar when `agy` is logged in; `secret-tool lookup service gemini
-      username antigravity` returns the JSON and, with `RUST_LOG=debug`, `holt.log` reports no failure reading the keyring.
-
-**Interface**
-
-- [ ] Sidebar, right panel, tabs, menus, and modals render without clipped text or overlap.
-- [ ] Drag dividers, switch LAYOUT (`Tabs | Split | Highlight`), and toggle Documents (Ctrl+Shift+D).
-- [ ] Open a folder via button (requires `xdg-open`) and pick a file in the dialog (requires portal).
-- [ ] Copy and paste (Ctrl+C/Ctrl+V) between the app and another program; paste an image as an attachment.
-- [ ] Git tab (status, diff, history, stash) and GitHub tab (PRs, issues, Actions) in a real repository.
-
-**Dictation**
-
-- [ ] With microphone: hold shortcut, speak, and see text appear in tab; temporary `.wav` disappears from `data/`.
-- [ ] Without microphone or without `libgomp`: app explains what is missing instead of crashing.
-
-**WSLg (from Windows, with app built in WSL)**
-
-- [ ] `./target/release/holt` opens via X11 (log shows “WSLg detected”); window doesn't flicker or vanish, and
-      terminal accepts keyboard input.
-- [ ] Maximize, restore, drag, and resize; cursor appears and text is not clipped.
-- [ ] On a high-DPI display, note the scale (currently always 1, so UI is small) and what is missing.
-- [ ] `WINIT_UNIX_BACKEND=wayland ./target/release/holt` reproduces the WSLg Wayland failure, for comparison.
-
-**Wrap-up**
-
-- [ ] `data/holt.log` and `data/crash.log` exist and have no repeated errors.
-- [ ] On closing the app, no orphaned `whisper-cli` or agent processes remain (`ps -ef | grep -E "whisper|claude"`).
-
-## 7. Maintenance
+## 6. Maintenance
 
 - Changed system dependencies, font paths, data directory, or GPU support? Update this file and the README in the same
   commit.

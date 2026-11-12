@@ -1,30 +1,18 @@
 # Maintenance guide
 
-This guide is for whoever maintains Holt, alone or alongside AI agents. It does not assume prior Rust experience.
 Overview and document map: [OVERVIEW.md](OVERVIEW.md).
 
-## 1. How Rust works in practice
-
-- **Rust is compiled.** Source code (`.rs`) turns into a native executable (`.exe`). The end user does not need Rust, Node, or any runtime: just the `.exe`.
-- **`cargo` is the tool for everything.** It downloads dependencies, compiles, runs tests, and formats code. It is equivalent to `npm` + `node` combined.
-- **Crate = package.** This repository is a *workspace*: a root `Cargo.toml` grouping 3 crates in `crates/`.
-- **Dependencies** live in `Cargo.toml`, like in `package.json`. Exact versions are locked in `Cargo.lock`, like in `package-lock.json`. Both go into git.
-- **The compiler is your greatest ally.** Rust refuses to compile code with invalid memory usage, mismatched types, and various thread race conditions. If it compiled, a large portion of bugs has already been eliminated. Error messages are long, but usually tell you exactly what to do: read the `help:` suggestion.
-- **`Result` instead of exceptions.** Functions that can fail return `Result<Value, Error>`. The `?` operator bubbles the error up to the caller. `unwrap()` crashes the program on error, so avoid it in production code.
-- **Ownership.** Every value has an owner. To share across threads we use `Arc` (reference count) and `Mutex`/`RwLock` (lock). That is why `Core` is an `Arc` inside and can be cloned freely.
-
-### Day-to-day commands
+## 1. Build, test, and lint
 
 ```bash
-cargo run -p holt            # compiles and opens the app (debug)
-cargo build --workspace --release   # generates optimized .exe files in target/release/
-cargo test --workspace              # runs tests
-cargo clippy --workspace --all-targets -- -D warnings   # "linter": flags suspicious code
-cargo fmt --all                     # formats code (style in rustfmt.toml; CI checks with --check)
-cargo update                        # updates dependencies within allowed versions
+cargo run -p holt                                    # run debug app
+cargo build --workspace --release                    # release binaries in target/release/
+cargo test --workspace                               # run all unit and integration tests
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all                                      # checked in CI with --check
 ```
 
-Minimum Rust version: **1.89** (`rust-version` in `Cargo.toml`). The initial compilation takes a few minutes because it compiles all dependencies. Subsequent ones are incremental and fast. The `target/` folder can be deleted at any time: it is just build cache.
+Minimum Rust version: **1.89** (`rust-version` in `Cargo.toml`).
 
 ## 2. Code map
 
@@ -61,11 +49,12 @@ crates/
 │   ├── github.rs     GitHub (PRs, issues, Actions): remote → owner/repo, credential helper token, REST API, parse (pure, with tests)
 │   ├── workspace.rs  working folder: tree listing, AGENTS.md, watcher, `resolve_workspace_path`, `read_text`, and `write_text` (text file up to 1 MB for Documents mode; with `safe_rel` and symlink check)
 │   ├── activation.rs activation of live instance on second launch (`data/.holt.bridge` → `POST /activate`)
-│   ├── attachments.rs, sessions.rs, config.rs, env.rs, paths.rs, process.rs, util.rs
+│   ├── attachments.rs, config.rs, desktop.rs, env.rs, i18n/ (mod.rs + pt_br/*.rs), paths.rs, phase.rs, process.rs, resume.rs, sessions.rs, util.rs
 │   ├── examples/memeval.rs   measures recall/precision/size of learning delivery on completed tasks
 │   ├── tests/bridge.rs   end-to-end bridge tests
 │   ├── tests/instructions.rs   instruction channels for each CLI
 │   ├── tests/learn_situation.rs   `--learn` with current situation and file-in-use warning
+│   ├── tests/mail.rs     durable mail lifecycle and bridge tests
 │   ├── tests/git.rs      integration with real git (skipped if git is not installed)
 │   ├── tests/tasks.rs    task lifecycle with real git (skipped if git is not installed)
 │   ├── tests/tasks_bridge.rs   /tasks routes and task agent permissions
@@ -73,7 +62,7 @@ crates/
 │   ├── tests/support/tasks_env.rs, fake_agent.rs   shared fixture and fake agent binary
 │   └── tests/github.rs   origin remote with real git; one `--ignored` test with real network and credentials
 ├── app/    (holt)        graphical interface (the main .exe)
-│   ├── main.rs / app.rs / window.rs / tray.rs / wslg.rs   winit window, OpenGL, event loop, system tray, and WSLg detection
+│   ├── main.rs / app.rs / window.rs / tray.rs / wslg.rs / desktop.rs   winit window, OpenGL, event loop, system tray, Linux desktop entry, and WSLg detection
 │   ├── debug_ui.rs   fictional screenshot scenarios (`HOLT_DEBUG_UI=…`: `debug_ui::apply`, `debug_tasks`…)
 │   ├── theme.rs      colors, fonts, and sizes (the "CSS")
 │   ├── icons.rs      SVG icons rasterized at runtime
@@ -100,26 +89,14 @@ crates/
 │       ├── code.rs (file as code: editor on `TextEdit` and large file rendered line by line), diff_view.rs (diff rendering with line wrapping, highlighting, and search), select.rs (text selection for custom-rendered screens)
 │       ├── sidebar.rs (toggle, PROJECTS, FILES, and LAYOUT) + projects.rs (projects and agents tree; `model_tag` shortens model name)
 │       ├── right_panel.rs (right sidebar: Tasks/Git/GitHub and the download strip)
-│       ├── tasks/ (Tasks tab: `list.rs`, `detail.rs`, `form.rs`, `widgets.rs`), git.rs + git_views.rs (Git tab), github.rs (GitHub tab)
+│       ├── tasks/ (Tasks tab: `mod.rs`, `list.rs`, `detail.rs`, `form.rs`, `widgets.rs`), git.rs + git_views.rs (Git tab), github.rs (GitHub tab)
 │       └── menus.rs (new tab, settings), shortcuts.rs (shortcuts), overlay.rs (drag-and-drop overlay), empty_state.rs (no open agent)
 └── cli/    (holt-cli)    ask-agent
     ├── src/bin/ask-agent.rs     the agent command (`parse_task`, `learn_command`, `outline_command`, `models_command`, `inbox_command`, `read_command`, with tests)
     └── tests/ask_agent.rs, tests/tasks.rs   real `ask-agent` against a real bridge
 ```
 
-**Golden rule:** the UI (`app`) only speaks to the backend via `Core` methods (in `crates/core/src/lib.rs`). Events return via `CoreEvent` (`events.rs`). Changed something in the backend? No UI screen needs to know how it was implemented.
-
-### How the UI works ("immediate" mode)
-
-The UI uses **egui**, which operates in *immediate mode*. There is no DOM tree like in HTML. On each frame, code "draws" the whole screen from the current state, and a click is detected in the exact same place that draws the button:
-
-```rust
-if ui.button("Send").clicked() {
-    deck.send_message();
-}
-```
-
-To change visuals, edit `theme.rs` (colors and sizes) or the corresponding area file in `ui/`. **winit** only creates the window and delivers operating system events: keyboard, mouse, file drops, and resizing.
+**Golden rule:** the UI (`app`) only speaks to the backend via `Core` methods (in `crates/core/src/lib.rs`). Events return via `CoreEvent` (`events.rs`). To change visuals, edit `theme.rs` (colors and sizes) or the corresponding area file in `ui/`. **winit** only creates the window and delivers OS events.
 
 ## 3. Common recipes
 
@@ -222,31 +199,13 @@ To invoke the bridge as a tab, obtain its token with `spawn_spec_for(&ident).env
 (see `tab_token` in `tests/bridge.rs`); with master token, body `from` is accepted. Tests initialize
 `Core` with `system_dirs: false`, so as not to depend on CLIs installed on the machine.
 
-## 4. Working with AI agents on the project
+## 4. Debugging, CI, and releasing
 
-- Always ask agents to run `cargo fmt`, `cargo clippy ... -D warnings`, and `cargo test --workspace` before concluding. That is the same as what CI runs.
-- Changes to `Core` (lib.rs) affect the UI. Ask for small changes and one area at a time (core **or** app).
-- **CI** (Continuous Integration) is GitHub's workflow (`.github/workflows/ci.yml`). On each push it compiles and tests on Windows, Ubuntu, and Fedora (Fedora in container, build and tests only), marking the commit/PR with ✅ or ❌. If ❌, open the run log to view the error. What has been verified on Linux is in [LINUX.md](LINUX.md).
-- To debug visually without opening the window: `HOLT_SMOKE=<folder>` saves a `screen.png` capture and exits the app (without downloading Whisper, to avoid initiating 1.6 GB in every temp folder). There are also `HOLT_DEBUG_FAKE_SHELL=1`, `HOLT_DEBUG_PTY=1` (records raw PTY output of each tab in `data/pty/`, see `terminal/record.rs`; tab right-click menu toggles same recording without env var), and `HOLT_DEBUG_UI=…` (`notices`, `notices-open`, `tasks-demo`, `tasks-detail`, `tasks-conflict`, `tasks-stopped`, `tasks-changes`, `tasks-messages`, `tasks-validating`, `tasks-new`, `tasks-new-more`, `branch:<name>`, `newtab`, `newtab-models:<agent>`, `usage-demo`, `usage-panel`, `git`, `git-demo`, `git-diff`, `github-demo`, `split-drag`, `docs-demo`, `docs-demo-file`, `docs-demo-md`, `docs-demo-report`, `docs-demo-unreadable`, `docs-demo-many`, `docs-demo-badge`, `drop`, `drop-pane:<n>`, `drop-task`, `mic-recording`, `target`, `attach`, `text`, `download`…; list in `debug_ui::apply`, `crates/app/src/debug_ui.rs`). On Linux, run under `xvfb-run`.
-- Logs: run with `RUST_LOG=debug` to view detailed messages in console (in debug builds).
-- **Releasing** (`.github/workflows/release.yml`): raise `version` in the root `Cargo.toml` (and `cargo build` so
-  `Cargo.lock` follows), commit on `dev`, wait for CI, fast-forward `main` (`git push origin dev:main`), then
-  `git tag -a vX.Y.Z -m "Holt vX.Y.Z" && git push origin vX.Y.Z`. The workflow builds the Windows zip and the Linux tar.gz
-  (Ubuntu 22.04, older glibc) with their SHA-256 and creates the release with generated notes; replace them with a written
-  summary (`gh release edit vX.Y.Z --notes-file <file>`), since commits do not come through PRs. The Whisper Vulkan engine
-  has its own tag (`whisper-engines-v*`, `.github/workflows/whisper-engines.yml`) and its checksum is pinned in
-  `crates/core/src/whisper.rs`.
+- **CI** (`.github/workflows/ci.yml`): runs `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` on Windows, Ubuntu, and Fedora (container). See [LINUX.md](LINUX.md) for platform specifics.
+- **Visual/PTY debugging:** `HOLT_SMOKE=<folder>` saves `screen.png` and exits (skips Whisper download); `HOLT_DEBUG_FAKE_SHELL=1`; `HOLT_DEBUG_PTY=1` (raw PTY output in `data/pty/`); `HOLT_DEBUG_UI=<scenario>` (full list in `crates/app/src/debug_ui.rs`). On Linux without a display, run under `xvfb-run`.
+- **Logs:** `RUST_LOG=debug` in debug builds.
+- **Releasing** (`.github/workflows/release.yml`): bump `version` in root `Cargo.toml` (and `cargo build` so `Cargo.lock` follows), commit on `dev`, wait for CI, fast-forward `main` (`git push origin dev:main`), then `git tag -a vX.Y.Z -m "Holt vX.Y.Z" && git push origin vX.Y.Z`. Replace generated release notes with a written summary (`gh release edit vX.Y.Z --notes-file <file>`). The Whisper Vulkan engine has its own tag (`whisper-engines-v*`, `.github/workflows/whisper-engines.yml`) with checksum pinned in `crates/core/src/whisper.rs`.
 
 ## 5. Known limitations
 
-The list is in [ideas.md](ideas.md), section "Known limitations".
-
-## 6. Name history
-
-The app was CommandDeck, then AgentDeck, and is now **Holt** (task `t1`, 2026-10-29). There is no compatibility left with
-the old names since 2026-10-29 (task `t3`): no config copy, no `data/` entry renames, no old env prefix, header, lock,
-`AGENTS.md` marker or worktree root. An install from before the rename must be migrated by hand.
-`memory/history.md` keeps describing the past under the old names. With `HOLT_HOME` the app is isolated and reads no user config.
-
-**After updating (user steps):** rename the GitHub repository to `pattrickn0/Holt` (GitHub redirects the old URL) and update
-`origin`; optionally rename the local folder to `~/Holt` and rebuild so the menu entry points at the new path.
+See [ideas.md](ideas.md), section "Known limitations".

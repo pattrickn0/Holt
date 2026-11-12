@@ -15,7 +15,7 @@ A limitation that starts getting in the way during actual use also moves up ther
   specifies which test covers each, and "awaiting validation" shows them as checkboxes.
   Optional: making it mandatory would create unnecessary bureaucracy for small tasks.
 - **Project skills for the 4 official CLIs** (2026-10-24): each CLI searches for skills in a folder (`.claude/skills`,
-  Antigravity to be confirmed, `.agents/skills` in Codex, `.opencode/skills`); Holt would provide a single folder for all.
+  `.agents/skills` in Antigravity and Codex, `.opencode/skills`); Holt would provide a single folder for all.
 - **Model selector showing only what the plan allows** (`t14`): the list comes from `agy models`/`opencode models` (what the
   CLI knows, not what the plan allows). On 2026-10-24 the user stated that in practice it already works this way; reopen if a
   model without access appears. If implemented, the same filter applies to `Core::models_inventory`.
@@ -40,7 +40,6 @@ A limitation that starts getting in the way during actual use also moves up ther
   side still feels unfinished and the Git, GitHub and Tasks views do not share the same visual rhythm (spacing,
   headers, borders). The typography was unified (two families) separately; this is about the components themselves.
 
-- **English in the interface** (was in `backlog.md`; removed on 2026-10-24 to make room for Windows and Linux items).
 - **Themes** (user request, 10/18; set aside on 2026-10-24): replace `theme.rs` constants with a runtime palette selected
   in settings, including background and the 16 terminal colors (`terminal/colors.rs`).
 - Color emojis (egui only supports monochrome); hover animation on empty state.

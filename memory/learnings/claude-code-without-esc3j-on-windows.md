@@ -11,7 +11,7 @@ Windows Terminal's `OpenConsole.exe`.
 **Why:** clearing our scrollback before resizing does not work: upon widening, Claude Code only redraws
 the visible screen, and the conversation would disappear.
 **How to apply:** the PTY only resizes once the mouse is released and the size remains settled for 150 ms (`RESIZE_DEBOUNCE`,
-`resize_due` in `deck.rs`): a drag becomes a single copy. Switching tabs in Highlight changes the width of panes
+`resize_due` in `deck/mod.rs`, called from `deck/frame.rs`): a drag becomes a single copy. Switching tabs in Highlight changes the width of panes
 without dragging: there the delay is 600 ms (`HIGHLIGHT_RESIZE_DEBOUNCE`, marked in `Deck::activate` via
 `highlight_switch_until`). Reverting to the size the PTY already has within the debounce cancels the pending resize (`Deck::fit_tab`).
 After applying a resize, the next one for the same tab waits for its output to remain quiet for 300 ms
