@@ -1196,6 +1196,119 @@ fn only_orchestrator_tabs_are_told_their_role_in_the_instructions() {
 }
 
 #[test]
+fn root_agent_opening_a_subordinate_auto_becomes_orchestrator_and_mid_tree_boss_does_not() {
+    let env = start(&[]);
+    fake_claude(&env);
+    fake_cli(&env, "agy");
+    env.core.enable_tab_delivery();
+    let p = env.core.active_project_id();
+    let port = env.core.bridge_port();
+    let host = format!("127.0.0.1:{port}");
+    env.core.restore_instance(&p, "claude");
+    assert!(!env.core.is_orchestrator(&p, "claude"), "standalone root is not an Orchestrator");
+
+    // `claude` asks `claude@dev` (created == true) -> `claude` auto-becomes Orchestrator.
+    let claude_tok = tab_token(&env, "claude");
+    let t1 = ask_in_thread(&env, claude_tok.clone(), json!({"to": "claude@dev", "message": "subtask"}));
+    let d1 = next_delivery(&env);
+    assert_eq!((d1.ident.id().as_str(), d1.create), ("claude@dev", true));
+
+    // Notice queued for `claude` explains it is now an Orchestrator.
+    let root_notice = env.core.take_team_notice(&p, "claude").expect("root notice");
+    assert!(root_notice.contains("You are an Orchestrator for this project"), "{root_notice}");
+
+    // `GET /agents` and `GET /team` both reflect `claude` as Orchestrator.
+    let agents_json = http(port, "GET", "/agents", &host, &claude_tok, "").1;
+    assert_eq!(agents_json["orchestrators"], json!(["claude"]));
+    let root_team = http(port, "GET", "/team", &host, &claude_tok, "").1;
+    assert_eq!((root_team["orchestrators"].clone(), root_team["is_orchestrator"].as_bool()), (json!(["claude"]), Some(true)));
+
+    // Mid-tree boss: `claude@dev` opens `antigravity@qa`. `claude@dev` has a boss (`claude`), so it stays `is_orchestrator: false`.
+    let dev_tok = tab_token(&env, "claude@dev");
+    let t2 = ask_in_thread(&env, dev_tok.clone(), json!({"to": "antigravity@qa", "message": "leaf"}));
+    let d2 = next_delivery(&env);
+    assert_eq!((d2.ident.id().as_str(), d2.create), ("antigravity@qa", true));
+
+    let mid_team = http(port, "GET", "/team", &host, &dev_tok, "").1;
+    assert_eq!(mid_team["boss"], "claude");
+    assert_eq!(mid_team["crew"], json!(["antigravity@qa"]));
+    assert_eq!((mid_team["orchestrators"].clone(), mid_team["is_orchestrator"].as_bool()), (json!(["claude"]), Some(false)));
+
+    env.core.close_instance(&p, "antigravity@qa");
+    env.core.close_instance(&p, "claude@dev");
+    let _ = t1.join();
+    let _ = t2.join();
+    env.core.shutdown();
+}
+
+#[test]
+fn multiple_hierarchies_reorganizations_and_manual_overrides() {
+    let env = start(&[]);
+    fake_claude(&env);
+    fake_cli(&env, "agy");
+    fake_cli(&env, "codex");
+    let p = env.core.active_project_id();
+    let port = env.core.bridge_port();
+    let host = format!("127.0.0.1:{port}");
+    for id in ["claude", "claude@sub", "antigravity", "antigravity@sub", "codex", "claude@t1", "shell", "shell@sub"] {
+        env.core.restore_instance(&p, id);
+    }
+
+    // Two independent hierarchies both auto-promote; `shell` and `claude@t1` never auto-promote.
+    env.core.set_boss(&p, "claude@sub", Some("claude")).expect("claude tree");
+    env.core.set_boss(&p, "antigravity@sub", Some("antigravity")).expect("agy tree");
+    env.core.set_boss(&p, "shell@sub", Some("shell")).expect("shell tree");
+    env.core.set_boss(&p, "codex", Some("claude@t1")).expect("t1 tree");
+    let orchs = || http(port, "GET", "/agents", &host, env.core.bridge_token(), "").1["orchestrators"].clone();
+    assert_eq!(orchs(), json!(["claude", "antigravity"]));
+    assert!(!env.core.is_orchestrator(&p, "shell") && !env.core.is_orchestrator(&p, "claude@t1"));
+
+    // Clear pending notices so we can observe flips cleanly.
+    for id in ["claude", "claude@sub", "antigravity", "antigravity@sub", "codex", "claude@t1"] {
+        let _ = env.core.take_team_notice(&p, id);
+    }
+
+    // Moving an unpinned root (`antigravity`) under `claude` drops its auto-Orchestrator role and notifies it.
+    env.core.set_boss(&p, "antigravity", Some("claude")).expect("move under claude");
+    assert_eq!(orchs(), json!(["claude"]));
+    let agy_notice = env.core.take_team_notice(&p, "antigravity").expect("dropped notice");
+    assert!(!agy_notice.contains("You are an Orchestrator"), "{agy_notice}");
+
+    // Closing `claude` promotes `antigravity` back to root (with crew `antigravity@sub`) -> auto-Orchestrator again!
+    env.core.close_instance(&p, "claude");
+    assert_eq!(orchs(), json!(["antigravity"]));
+    let promoted = env.core.take_team_notice(&p, "antigravity").expect("re-promoted notice");
+    assert!(promoted.contains("You are an Orchestrator for this project"), "{promoted}");
+
+    // `Remove orchestrator` adds opt-out so adding another subordinate does not re-enable it.
+    env.core.set_orchestrator(&p, "antigravity", false).expect("opt out");
+    assert_eq!(orchs(), json!([]));
+    assert!(env.core.take_team_notice(&p, "antigravity").is_some());
+    env.core.set_boss(&p, "claude@sub", Some("antigravity")).expect("add another child");
+    assert_eq!(orchs(), json!([]), "opt-out persists across new subordinates");
+
+    // Re-enabling (`Set as orchestrator`) pins ON, clearing opt-out; dragging under a boss keeps the manual pin.
+    env.core.set_orchestrator(&p, "antigravity", true).expect("pin on");
+    assert_eq!(orchs(), json!(["antigravity"]));
+    env.core.set_boss(&p, "codex", None).expect("codex root");
+    env.core.set_boss(&p, "antigravity", Some("codex")).expect("drag pinned under codex");
+    // Now `codex` (auto root leading `antigravity`) and `antigravity` (manually pinned) are both Orchestrators.
+    assert_eq!(orchs(), json!(["antigravity", "codex"]));
+
+    // Detaching `codex`'s only subordinate drops `codex`'s auto-Orchestrator role (since `codex` is not pinned).
+    env.core.set_boss(&p, "antigravity", None).expect("detach");
+    assert_eq!(orchs(), json!(["antigravity"]));
+    let codex_notice = env.core.take_team_notice(&p, "codex").expect("codex lost auto");
+    assert!(!codex_notice.contains("You are an Orchestrator"), "{codex_notice}");
+
+    // Closing `antigravity` clears both `orchestrators` and `orchestrators_off`.
+    env.core.close_instance(&p, "antigravity");
+    let saved = &env.core.projects()[0];
+    assert!(saved.orchestrators.is_empty() && saved.orchestrators_off.is_empty());
+    env.core.shutdown();
+}
+
+#[test]
 fn an_agent_becomes_the_boss_of_the_role_it_opens_and_the_new_one_is_told() {
     let env = start(&[("claude", says("headless"))]);
     let p = env.core.active_project_id();

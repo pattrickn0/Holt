@@ -1,10 +1,11 @@
 //! Hierarchy of a project's instances (who is whose boss), stored in
-//! `ProjectCfg.tab_parents` (instance id → boss id), and the project's Orchestrators (`ProjectCfg.orchestrators`).
-//! Pure functions; the `Core` applies them.
+//! `ProjectCfg.tab_parents` (instance id → boss id), and the project's Orchestrators (`ProjectCfg.orchestrators` /
+//! `ProjectCfg.orchestrators_off`). Pure functions; the `Core` applies them.
 //!
 //! Two different things live here: any agent that calls `ask-agent <other>` (or creates a task) becomes the **boss**
-//! of whoever it opened, a temporary place in the tree; an **Orchestrator** is a project-level role the user
-//! toggles per agent (never a task agent `tN`), persisted and shown by the bridge, `ask-agent` and the UI.
+//! of whoever it opened; an **Orchestrator** is a project-level role assigned automatically to eligible roots leading
+//! a hierarchy (`boss == None` with at least one open subordinate) or overridden per agent by the user (never a task
+//! agent `tN`), persisted and shown by the bridge, `ask-agent` and the UI.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,12 +14,12 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct Team {
     /// Who the instance answers to (`None` = the user).
     pub boss: Option<String>,
-    /// Who answers to it, in `open` order. Having a crew does not make an instance an Orchestrator: any agent that
-    /// opened helpers has one.
+    /// Who answers to it, in `open` order. Having a crew does not make an intermediate boss an Orchestrator:
+    /// only roots leading a hierarchy (or manually pinned agents) hold the role.
     pub crew: Vec<String>,
-    /// The project's Orchestrators that are currently open, in `open` order.
+    /// The project's effective Orchestrators that are currently open, in `open` order.
     pub orchestrators: Vec<String>,
-    /// The instance itself is designated as an Orchestrator for this project.
+    /// The instance itself is an Orchestrator for this project (auto-promoted root or manually pinned).
     pub is_orchestrator: bool,
 }
 
@@ -27,6 +28,42 @@ pub struct Team {
 pub fn is_task_agent(id: &str) -> bool {
     let role = id.split('@').nth(1).unwrap_or("");
     role.strip_prefix('t').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// `true` if `id` can be promoted automatically to Orchestrator when leading a hierarchy (not a task agent `tN`
+/// and not a plain `shell` terminal).
+pub fn is_auto_orchestrator_eligible(id: &str) -> bool {
+    !is_task_agent(id) && id.split('@').next().is_some_and(|k| !k.is_empty() && k != "shell")
+}
+
+/// `true` if `id` is an open, eligible root leading at least one open subordinate in `parents`.
+pub fn is_auto_orchestrator(parents: &BTreeMap<String, String>, open: &[String], id: &str) -> bool {
+    is_auto_orchestrator_eligible(id)
+        && open.iter().any(|o| o == id)
+        && !parents.get(id).is_some_and(|b| open.iter().any(|o| o == b))
+        && open.iter().any(|o| o != id && parents.get(o.as_str()).is_some_and(|p| p == id))
+}
+
+/// Effective Orchestrators among `open` (in `open` order, deduplicated): manually `pinned` non-task instances,
+/// plus eligible hierarchy roots (`is_auto_orchestrator`) not in `opted_out`.
+pub fn effective_orchestrators(
+    parents: &BTreeMap<String, String>,
+    open: &[String],
+    pinned: &BTreeSet<String>,
+    opted_out: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for id in open {
+        if out.iter().any(|existing| existing == id) {
+            continue;
+        }
+        let is_orch = (!is_task_agent(id) && pinned.contains(id.as_str()))
+            || (!opted_out.contains(id.as_str()) && is_auto_orchestrator(parents, open, id));
+        if is_orch {
+            out.push(id.clone());
+        }
+    }
+    out
 }
 
 /// Putting `child` under `parent` would create a cycle (`parent` is `child` itself or someone in its crew).
@@ -44,31 +81,42 @@ pub fn would_cycle(parents: &BTreeMap<String, String>, child: &str, parent: &str
     true
 }
 
-/// Boss and crew of `id`, considering only the open instances (`open`), and the project's `orchestrators` (only open ones).
-pub fn team_of(parents: &BTreeMap<String, String>, id: &str, open: &[String], orchestrators: &BTreeSet<String>) -> Team {
-    let open_orchs = open_orchestrators(orchestrators, open);
+/// Boss and crew of `id`, considering only the open instances (`open`), and the project's effective Orchestrators
+/// (`pinned` + auto-promoted hierarchy roots minus `opted_out`).
+pub fn team_of_with(
+    parents: &BTreeMap<String, String>,
+    id: &str,
+    open: &[String],
+    pinned: &BTreeSet<String>,
+    opted_out: &BTreeSet<String>,
+) -> Team {
+    let orchs = effective_orchestrators(parents, open, pinned, opted_out);
     Team {
         boss: parents.get(id).filter(|b| open.contains(b)).cloned(),
         crew: open.iter().filter(|o| parents.get(o.as_str()).is_some_and(|p| p == id)).cloned().collect(),
-        is_orchestrator: open_orchs.iter().any(|o| o == id),
-        orchestrators: open_orchs,
+        is_orchestrator: orchs.iter().any(|o| o == id),
+        orchestrators: orchs,
     }
 }
 
-/// The saved Orchestrators that are currently open instances, in `open` order.
-pub fn open_orchestrators(orchestrators: &BTreeSet<String>, open: &[String]) -> Vec<String> {
-    open.iter().filter(|id| orchestrators.contains(id.as_str())).cloned().collect()
+/// Like [`team_of_with`], with no manual opt-outs (`orchestrators_off` empty).
+pub fn team_of(parents: &BTreeMap<String, String>, id: &str, open: &[String], pinned: &BTreeSet<String>) -> Team {
+    team_of_with(parents, id, open, pinned, &BTreeSet::new())
 }
 
-/// The instance `closed` left: removes it from the project's Orchestrators if it was one. `true` if it changed.
-pub fn close_orchestrator(orchestrators: &mut BTreeSet<String>, closed: &str) -> bool {
-    orchestrators.remove(closed)
+/// The instance `closed` left: removes it from both `pinned` and `opted_out`. `true` if either set changed.
+pub fn close_orchestrator(pinned: &mut BTreeSet<String>, opted_out: &mut BTreeSet<String>, closed: &str) -> bool {
+    pinned.remove(closed) | opted_out.remove(closed)
 }
 
-/// The instance `old` is now called `new`: its Orchestrator status follows it (and is dropped if the new id is a task agent).
-pub fn rename_orchestrator(orchestrators: &mut BTreeSet<String>, old: &str, new: &str) {
-    if orchestrators.remove(old) && !is_task_agent(new) {
-        orchestrators.insert(new.to_owned());
+/// The instance `old` is now called `new`: migrates both `pinned` and `opted_out` (dropping if `new` is a task agent).
+pub fn rename_orchestrator(pinned: &mut BTreeSet<String>, opted_out: &mut BTreeSet<String>, old: &str, new: &str) {
+    let keep = !is_task_agent(new);
+    if pinned.remove(old) && keep {
+        pinned.insert(new.to_owned());
+    }
+    if opted_out.remove(old) && keep {
+        opted_out.insert(new.to_owned());
     }
 }
 
@@ -161,24 +209,59 @@ mod tests {
         let m = map(&[("claude@dev", "claude"), ("antigravity", "claude"), ("claude", "fechado")]);
         let open = ids(&["claude", "claude@dev", "antigravity"]);
         let empty = BTreeSet::new();
-        assert_eq!(team_of(&m, "claude", &open, &empty), Team { crew: ids(&["claude@dev", "antigravity"]), ..Team::default() });
-        assert_eq!(team_of(&m, "antigravity", &open, &empty), Team { boss: Some("claude".into()), ..Team::default() });
+        // `fechado` is not open, so `claude` is an open root leading `claude@dev` and `antigravity` → auto-Orchestrator.
+        assert_eq!(
+            team_of(&m, "claude", &open, &empty),
+            Team { crew: ids(&["claude@dev", "antigravity"]), orchestrators: ids(&["claude"]), is_orchestrator: true, ..Team::default() }
+        );
+        assert_eq!(
+            team_of(&m, "antigravity", &open, &empty),
+            Team { boss: Some("claude".into()), orchestrators: ids(&["claude"]), ..Team::default() }
+        );
     }
 
     #[test]
-    fn orchestrators_are_distinct_from_a_boss_with_crew_and_can_be_multiple() {
-        // `claude` opened helpers (it has a crew), while `codex` and `antigravity` are designated Orchestrators.
-        let m = map(&[("claude@dev", "claude"), ("antigravity", "claude")]);
-        let open = ids(&["claude", "claude@dev", "antigravity", "codex"]);
-        let orchs = set(&["codex", "antigravity", "gone"]);
-        let delegator = team_of(&m, "claude", &open, &orchs);
-        assert_eq!(delegator.crew, ids(&["claude@dev", "antigravity"]));
-        assert!(!delegator.is_orchestrator, "a crew does not make an Orchestrator");
-        assert_eq!(delegator.orchestrators, ids(&["antigravity", "codex"]));
+    fn intermediate_boss_is_not_orchestrator_while_roots_and_pinned_can_be_multiple() {
+        // `antigravity` (root) -> `claude` (intermediate delegator) -> `claude@dev`.
+        // `codex` (root) -> `codex@qa` (second independent root), plus `claude@dev` manually pinned.
+        let m = map(&[("claude", "antigravity"), ("claude@dev", "claude"), ("codex@qa", "codex")]);
+        let open = ids(&["antigravity", "claude", "claude@dev", "codex", "codex@qa"]);
+        let pinned = set(&["claude@dev", "gone"]);
+        let off = set(&[]);
 
-        let orch = team_of(&m, "codex", &open, &orchs);
-        assert!(orch.is_orchestrator && orch.crew.is_empty() && orch.boss.is_none());
-        assert_eq!(orch.orchestrators, ids(&["antigravity", "codex"]));
+        let mid = team_of_with(&m, "claude", &open, &pinned, &off);
+        assert_eq!(mid.boss.as_deref(), Some("antigravity"));
+        assert_eq!(mid.crew, ids(&["claude@dev"]));
+        assert!(!mid.is_orchestrator, "an intermediate boss with crew does not auto-promote");
+        assert_eq!(mid.orchestrators, ids(&["antigravity", "claude@dev", "codex"]));
+
+        let root = team_of_with(&m, "antigravity", &open, &pinned, &off);
+        assert!(root.is_orchestrator && root.boss.is_none());
+
+        let pinned_leaf = team_of_with(&m, "claude@dev", &open, &pinned, &off);
+        assert!(pinned_leaf.is_orchestrator, "manual pin survives having a boss");
+    }
+
+    #[test]
+    fn auto_orchestrator_rules_and_overrides() {
+        assert!(is_auto_orchestrator_eligible("claude"));
+        assert!(is_auto_orchestrator_eligible("antigravity@lead@ana"));
+        assert!(!is_auto_orchestrator_eligible("shell"));
+        assert!(!is_auto_orchestrator_eligible("shell@dev"));
+        assert!(!is_auto_orchestrator_eligible("claude@t1"));
+        assert!(!is_auto_orchestrator_eligible(""));
+
+        let m = map(&[("claude@dev", "claude"), ("shell@dev", "shell"), ("claude@t1", "claude"), ("leaf", "claude@t1")]);
+        let open = ids(&["claude", "claude", "claude@dev", "shell", "shell@dev", "claude@t1", "leaf"]);
+        assert!(is_auto_orchestrator(&m, &open, "claude"));
+        assert!(!is_auto_orchestrator(&m, &open, "claude@dev"));
+        assert!(!is_auto_orchestrator(&m, &open, "shell"), "shell never auto-promotes");
+        assert!(!is_auto_orchestrator(&m, &open, "claude@t1"), "tN never auto-promotes");
+        assert!(!is_auto_orchestrator(&m, &open, "missing"));
+
+        // Deduplicated in `open` order; `orchestrators_off` suppresses auto; manual `pinned` still allows shell.
+        assert_eq!(effective_orchestrators(&m, &open, &set(&["shell", "claude@t1"]), &set(&[])), ids(&["claude", "shell"]));
+        assert_eq!(effective_orchestrators(&m, &open, &set(&[]), &set(&["claude"])), Vec::<String>::new());
     }
 
     #[test]
@@ -193,16 +276,27 @@ mod tests {
 
     #[test]
     fn orchestrators_follow_close_and_rename() {
-        let mut o = set(&["claude", "codex"]);
-        assert!(!close_orchestrator(&mut o, "antigravity"));
-        rename_orchestrator(&mut o, "antigravity", "antigravity@dev");
-        assert_eq!(o, set(&["claude", "codex"]));
-        rename_orchestrator(&mut o, "claude", "claude@lead");
-        assert_eq!(o, set(&["claude@lead", "codex"]));
-        rename_orchestrator(&mut o, "claude@lead", "claude@t9");
-        assert_eq!(o, set(&["codex"]), "a task agent cannot hold the role");
-        assert!(close_orchestrator(&mut o, "codex"));
-        assert!(o.is_empty());
+        let mut pinned = set(&["claude", "codex"]);
+        let mut off = set(&["antigravity"]);
+        assert!(!close_orchestrator(&mut pinned, &mut off, "gemini"));
+        rename_orchestrator(&mut pinned, &mut off, "gemini", "gemini@dev");
+        assert_eq!((&pinned, &off), (&set(&["claude", "codex"]), &set(&["antigravity"])));
+
+        rename_orchestrator(&mut pinned, &mut off, "claude", "claude@lead");
+        rename_orchestrator(&mut pinned, &mut off, "antigravity", "antigravity@lead");
+        assert_eq!(pinned, set(&["claude@lead", "codex"]));
+        assert_eq!(off, set(&["antigravity@lead"]));
+
+        rename_orchestrator(&mut pinned, &mut off, "claude@lead", "claude@t9");
+        rename_orchestrator(&mut pinned, &mut off, "antigravity@lead", "antigravity@t2");
+        assert_eq!(pinned, set(&["codex"]), "a task agent cannot hold the role");
+        assert!(off.is_empty(), "opt-out also drops when renamed to a task agent");
+
+        assert!(close_orchestrator(&mut pinned, &mut off, "codex"));
+        assert!(pinned.is_empty());
+        let mut off_only = set(&["claude"]);
+        assert!(close_orchestrator(&mut pinned, &mut off_only, "claude"));
+        assert!(off_only.is_empty());
     }
 
     #[test]

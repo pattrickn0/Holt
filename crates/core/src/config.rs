@@ -33,6 +33,10 @@ pub struct ProjectCfg {
     /// when a tab closes and renamed with it (see `team.rs`).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub orchestrators: BTreeSet<String>,
+    /// Instances that the user explicitly opted out of automatic Orchestrator promotion (`Remove orchestrator`),
+    /// so adding or changing subordinates does not re-promote them until re-enabled or closed.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub orchestrators_off: BTreeSet<String>,
     /// LLM model of each instance (tab id → model, e.g. `claude@dev` → `sonnet`). The id does not
     /// change with the model; only the instances that chose (or inherited) a model go in here.
     pub tab_models: BTreeMap<String, String>,
@@ -59,6 +63,7 @@ impl Default for ProjectCfg {
             split_cols: Vec::new(),
             tab_parents: BTreeMap::new(),
             orchestrators: BTreeSet::new(),
+            orchestrators_off: BTreeSet::new(),
             tab_models: BTreeMap::new(),
             tab_efforts: BTreeMap::new(),
             tab_sessions: BTreeMap::new(),
@@ -865,19 +870,25 @@ mod tests {
         let mut project = ProjectCfg::new(tmp.path().join("proj"), None, &[]);
         project.orchestrators.insert("claude@lead".into());
         project.orchestrators.insert("codex".into());
+        project.orchestrators_off.insert("antigravity".into());
         let cfg = Config { active_project: project.id.clone(), project_list: vec![project.clone()], ..Config::default() };
         cfg.save(&p.config_file).expect("save");
         let text = std::fs::read_to_string(&p.config_file).expect("read");
         assert!(text.contains("\"orchestrators\"") && text.contains("\"claude@lead\"") && text.contains("\"codex\""), "{text}");
+        assert!(text.contains("\"orchestratorsOff\"") && text.contains("\"antigravity\""), "{text}");
         let back = Config::load_from(std::slice::from_ref(&p.config_file), &p, no_home());
         assert_eq!(back.project_list[0].orchestrators, project.orchestrators);
-        // When empty, the key is not written; an old config (without the key) loads with an empty set.
+        assert_eq!(back.project_list[0].orchestrators_off, project.orchestrators_off);
+        // When empty, the keys are not written; an old config (without the keys) loads with empty sets.
         project.orchestrators.clear();
+        project.orchestrators_off.clear();
         let cfg = Config { active_project: project.id.clone(), project_list: vec![project], ..Config::default() };
         cfg.save(&p.config_file).expect("save");
-        assert!(!std::fs::read_to_string(&p.config_file).expect("read").contains("orchestrators"));
+        let empty_text = std::fs::read_to_string(&p.config_file).expect("read");
+        assert!(!empty_text.contains("orchestrators"));
+        assert!(!empty_text.contains("orchestratorsOff"));
         let old = Config::from_json_over_defaults(r#"{"projectList":[{"id":"p1","name":"x","path":"/x"}]}"#, &p);
-        assert!(old.project_list[0].orchestrators.is_empty());
+        assert!(old.project_list[0].orchestrators.is_empty() && old.project_list[0].orchestrators_off.is_empty());
     }
 
     #[test]
