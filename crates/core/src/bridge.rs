@@ -235,8 +235,8 @@ fn handle(weak: Weak<CoreInner>, mut req: Request, port: u16, slot: Active, bodi
                 !crate::agents::can_answer_with(base, &custom)
             })
             .collect();
-        // The project's Orchestrators (a designated role, not just whoever opened helpers), only open tabs.
-        let orchestrators = crate::team::open_orchestrators(&core.orchestrators(&project), &core.project_instance_ids(&project));
+        // The project's effective Orchestrators (auto-promoted hierarchy roots + manual pins minus opt-outs), only open tabs.
+        let orchestrators = core.effective_orchestrators(&project);
         return reply(
             req,
             200,

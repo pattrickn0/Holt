@@ -16,17 +16,20 @@ impl Deck {
             .map(|p| {
                 let loaded = self.projects.get(&p.id).is_some_and(|s| s.loaded);
                 let agents = if loaded {
+                    let ids: Vec<String> = self.tabs.iter().filter(|t| t.project == p.id).map(|t| t.ident.id()).collect();
+                    let orchs = holt_core::team::effective_orchestrators(&p.tab_parents, &ids, &p.orchestrators, &p.orchestrators_off);
                     (0..self.tabs.len())
                         .filter(|&i| self.tabs[i].project == p.id)
                         .map(|i| {
                             let t = &self.tabs[i];
+                            let id = t.ident.id();
                             AgentBadge {
-                                id: t.ident.id(),
-                                parent: p.tab_parents.get(&t.ident.id()).cloned(),
-                                orchestrator: p.orchestrators.contains(&t.ident.id()),
+                                orchestrator: orchs.iter().any(|o| o == &id),
+                                id: id.clone(),
+                                parent: p.tab_parents.get(&id).cloned(),
                                 kind: t.kind.clone(),
                                 label: t.label.clone(),
-                                model: p.tab_models.get(&t.ident.id()).cloned().or_else(|| t.model.clone()),
+                                model: p.tab_models.get(&id).cloned().or_else(|| t.model.clone()),
                                 status: t.status_label(now),
                                 color: t.color,
                                 busy: t.busy,
@@ -37,22 +40,27 @@ impl Deck {
                         })
                         .collect()
                 } else {
-                    p.open_tabs
-                        .iter()
-                        .filter_map(|id| Ident::parse(id))
-                        .map(|ident| AgentBadge {
-                            id: ident.id(),
-                            parent: p.tab_parents.get(&ident.id()).cloned(),
-                            orchestrator: p.orchestrators.contains(&ident.id()),
-                            label: ident.label(&self.agents.name(&ident.kind)),
-                            model: p.tab_models.get(&ident.id()).cloned().or_else(|| self.agents.local_model(&ident.kind)),
-                            status: None,
-                            color: self.agents.tab_color(&ident.kind),
-                            kind: ident.kind,
-                            busy: false,
-                            done: false,
-                            alive: false,
-                            tab: None,
+                    let idents: Vec<Ident> = p.open_tabs.iter().filter_map(|id| Ident::parse(id)).collect();
+                    let ids: Vec<String> = idents.iter().map(Ident::id).collect();
+                    let orchs = holt_core::team::effective_orchestrators(&p.tab_parents, &ids, &p.orchestrators, &p.orchestrators_off);
+                    idents
+                        .into_iter()
+                        .map(|ident| {
+                            let id = ident.id();
+                            AgentBadge {
+                                orchestrator: orchs.iter().any(|o| o == &id),
+                                id: id.clone(),
+                                parent: p.tab_parents.get(&id).cloned(),
+                                label: ident.label(&self.agents.name(&ident.kind)),
+                                model: p.tab_models.get(&id).cloned().or_else(|| self.agents.local_model(&ident.kind)),
+                                status: None,
+                                color: self.agents.tab_color(&ident.kind),
+                                kind: ident.kind,
+                                busy: false,
+                                done: false,
+                                alive: false,
+                                tab: None,
+                            }
                         })
                         .collect()
                 };

@@ -503,9 +503,11 @@ impl Core {
     /// The instance's tab was closed: forgets the instance, its token and its activity, notifies whoever
     /// was waiting for its answer and discards the questions it asked (nobody reads the answers any more).
     pub fn close_instance(&self, project: &str, id: &str) {
+        let open_before = self.project_instance_ids(project);
         if let Some(list) = self.inner.instances.lock().get_mut(project) {
             list.remove(id);
         }
+        let open_after: Vec<String> = open_before.iter().filter(|o| o.as_str() != id).cloned().collect();
         self.inner.callers.lock().retain(|_, c| !(c.tab && c.project == project && c.id == id));
         let key = instances::scoped(project, id);
         self.inner.exchange.fail_target(&key, &format!("the tab of \"{id}\" was closed before answering"));
@@ -515,13 +517,16 @@ impl Core {
         // The team of whoever closed goes to their boss.
         let mut touched = Vec::new();
         self.update_project(project, |p| {
+            let orch_before = team::effective_orchestrators(&p.tab_parents, &open_before, &p.orchestrators, &p.orchestrators_off);
             touched = team::remove(&mut p.tab_parents, id);
-            // The Orchestrator closed for good: the project has none until the user designates another.
-            team::close_orchestrator(&mut p.orchestrators, id);
+            // Clear any manual pin/opt-out for the closed instance.
+            team::close_orchestrator(&mut p.orchestrators, &mut p.orchestrators_off, id);
             p.tab_models.remove(id);
             p.tab_efforts.remove(id);
             // Closed for good (the tab's ×, a finished task): reopening it later starts a new conversation.
             p.tab_sessions.remove(id);
+            let orch_after = team::effective_orchestrators(&p.tab_parents, &open_after, &p.orchestrators, &p.orchestrators_off);
+            touched.extend(diff_orchestrators(&orch_before, &orch_after).into_iter().filter(|x| x != id));
         });
         self.mark_team_changed(project, &touched);
     }
@@ -530,26 +535,54 @@ impl Core {
 
     /// Boss and team of instance `id` of the project (only open instances).
     pub fn team(&self, project: &str, id: &str) -> Team {
-        let (parents, orchestrators) =
-            self.inner.config.read().project(project).map(|p| (p.tab_parents.clone(), p.orchestrators.clone())).unwrap_or_default();
-        team::team_of(&parents, id, &self.project_instance_ids(project), &orchestrators)
+        let open = self.project_instance_ids(project);
+        let (parents, pinned, opted_out) = self
+            .inner
+            .config
+            .read()
+            .project(project)
+            .map(|p| (p.tab_parents.clone(), p.orchestrators.clone(), p.orchestrators_off.clone()))
+            .unwrap_or_default();
+        team::team_of_with(&parents, id, &open, &pinned, &opted_out)
     }
 
-    /// The project's Orchestrators, as saved (`ProjectCfg.orchestrators`), even if their tabs have not been reopened yet.
-    /// Orchestrator is a project-level role toggled per agent; an agent that merely opened helpers is only their boss
-    /// (see `team.rs`).
+    /// Effective Orchestrators currently open in `project`, in `open` order: manually pinned instances plus
+    /// eligible hierarchy roots (`boss == None` with at least one open subordinate) not opted out.
+    pub fn effective_orchestrators(&self, project: &str) -> Vec<String> {
+        let open = self.project_instance_ids(project);
+        let Some(p) = self.inner.config.read().project(project).cloned() else {
+            return Vec::new();
+        };
+        team::effective_orchestrators(&p.tab_parents, &open, &p.orchestrators, &p.orchestrators_off)
+    }
+
+    /// The project's effective Orchestrators (auto-promoted hierarchy roots + manual pins minus opt-outs).
+    /// When no instances are registered yet (before tab restore), falls back to `open_tabs` / saved `orchestrators`.
     pub fn orchestrators(&self, project: &str) -> std::collections::BTreeSet<String> {
-        self.inner.config.read().project(project).map(|p| p.orchestrators.clone()).unwrap_or_default()
+        let open = self.project_instance_ids(project);
+        let Some(p) = self.inner.config.read().project(project).cloned() else {
+            return std::collections::BTreeSet::new();
+        };
+        if !open.is_empty() {
+            return team::effective_orchestrators(&p.tab_parents, &open, &p.orchestrators, &p.orchestrators_off).into_iter().collect();
+        }
+        if !p.open_tabs.is_empty() {
+            let mut out: std::collections::BTreeSet<String> =
+                team::effective_orchestrators(&p.tab_parents, &p.open_tabs, &p.orchestrators, &p.orchestrators_off).into_iter().collect();
+            out.extend(p.orchestrators.iter().filter(|id| !team::is_task_agent(id)).cloned());
+            return out;
+        }
+        p.orchestrators
     }
 
-    /// `true` if `id` is designated as an Orchestrator in `project`.
+    /// `true` if `id` is effectively an Orchestrator in `project` (auto-promoted root or manually pinned).
     pub fn is_orchestrator(&self, project: &str, id: &str) -> bool {
-        self.inner.config.read().project(project).is_some_and(|p| p.orchestrators.contains(id))
+        self.orchestrators(project).contains(id)
     }
 
     /// Toggles instance `id` as a project Orchestrator (`enabled`). Refuses task agents (`tN`), unknown projects, and
-    /// enabling an instance that is not open in the project. When changed, the instance receives the team notice with its
-    /// next message; the sidebar reads the saved config on the next frame.
+    /// enabling an instance that is not open in the project. When changed, any instance whose effective status flipped
+    /// receives the team notice with its next message; the sidebar reads the saved config on the next frame.
     pub fn set_orchestrator(&self, project: &str, id: &str, enabled: bool) -> Result<(), String> {
         if self.project_path(project).is_none() {
             return Err(crate::t!("unknown project: {id}", id = project));
@@ -557,22 +590,34 @@ impl Core {
         if team::is_task_agent(id) {
             return Err(crate::t!("\"{id}\" is a task agent: it cannot be the project's orchestrator", id));
         }
-        if enabled && !self.project_instance_ids(project).iter().any(|o| o == id) {
+        let open = self.project_instance_ids(project);
+        if enabled && !open.iter().any(|o| o == id) {
             return Err(crate::t!("\"{who}\" is not open in this project", who = id));
         }
-        let mut changed = false;
+        let mut flipped = Vec::new();
         self.update_project(project, |p| {
-            changed = if enabled { p.orchestrators.insert(id.to_owned()) } else { p.orchestrators.remove(id) };
+            let before = team::effective_orchestrators(&p.tab_parents, &open, &p.orchestrators, &p.orchestrators_off);
+            if enabled {
+                p.orchestrators_off.remove(id);
+                p.orchestrators.insert(id.to_owned());
+            } else {
+                p.orchestrators.remove(id);
+                if team::is_auto_orchestrator(&p.tab_parents, &open, id) {
+                    p.orchestrators_off.insert(id.to_owned());
+                }
+            }
+            let after = team::effective_orchestrators(&p.tab_parents, &open, &p.orchestrators, &p.orchestrators_off);
+            flipped = diff_orchestrators(&before, &after);
         });
-        if changed {
-            self.mark_team_changed(project, &[id.to_owned()]);
+        if !flipped.is_empty() {
+            self.mark_team_changed(project, &flipped);
         }
         Ok(())
     }
 
     /// Puts instance `id` under `boss` (`None` = answers to the user). Refuses instances that are not
-    /// open in the project and cycles. Whoever was affected (it, the old boss and the new one) receives the
-    /// notice with the next message.
+    /// open in the project and cycles. Whoever was affected (it, the old boss, the new one, and any instance
+    /// whose effective Orchestrator status flipped) receives the notice with the next message.
     pub fn set_boss(&self, project: &str, id: &str, boss: Option<&str>) -> Result<(), String> {
         let open = self.project_instance_ids(project);
         for who in std::iter::once(id).chain(boss) {
@@ -581,24 +626,30 @@ impl Core {
             }
         }
         // Checks and saves under the same lock: a drag and the bridge at the same time do not form a cycle.
-        let mut outcome: Result<Option<Option<String>>, String> = Ok(None);
+        let mut change = None;
+        let mut err = None;
         self.update_project(project, |p| {
             if let Some(b) = boss.filter(|b| team::would_cycle(&p.tab_parents, id, b)) {
-                outcome = Err(crate::t!("\"{b}\" is already part of the team of \"{id}\": it cannot be its boss", b, id));
+                err = Some(crate::t!("\"{b}\" is already part of the team of \"{id}\": it cannot be its boss", b, id));
                 return;
             }
             let old = p.tab_parents.get(id).cloned();
             if old.as_deref() == boss {
                 return;
             }
+            let orch_before = team::effective_orchestrators(&p.tab_parents, &open, &p.orchestrators, &p.orchestrators_off);
             match boss {
                 Some(b) => p.tab_parents.insert(id.to_owned(), b.to_owned()),
                 None => p.tab_parents.remove(id),
             };
-            outcome = Ok(Some(old));
+            let orch_after = team::effective_orchestrators(&p.tab_parents, &open, &p.orchestrators, &p.orchestrators_off);
+            change = Some((old, diff_orchestrators(&orch_before, &orch_after)));
         });
-        let Some(old) = outcome? else { return Ok(()) };
-        let touched: Vec<String> = std::iter::once(id.to_owned()).chain(old).chain(boss.map(str::to_owned)).collect();
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let Some((old, flipped)) = change else { return Ok(()) };
+        let touched: Vec<String> = std::iter::once(id.to_owned()).chain(old).chain(boss.map(str::to_owned)).chain(flipped).collect();
         self.mark_team_changed(project, &touched);
         Ok(())
     }
@@ -617,7 +668,9 @@ impl Core {
 
     /// Renames an open instance of the project (updates instances, callers and pending questions).
     pub fn rename_instance(&self, project: &str, old_id: &str, new_ident: &Ident) -> Result<(), String> {
+        let open_before = self.project_instance_ids(project);
         self.with_instances(project, |list| list.rename(old_id, new_ident.clone()))?;
+        let open_after = self.project_instance_ids(project);
         let new_id = new_ident.id();
         for caller in self.inner.callers.lock().values_mut() {
             if caller.project == project && caller.id == old_id {
@@ -628,17 +681,31 @@ impl Core {
         self.inner.inbox.rename(&instances::scoped(project, old_id), &instances::scoped(project, &new_id));
         self.inner.mail.rename(project, old_id, &new_id);
         self.inner.activity.forget(&instances::scoped(project, old_id));
+        let mut flipped = Vec::new();
         self.update_project(project, |p| {
+            let orch_before = team::effective_orchestrators(&p.tab_parents, &open_before, &p.orchestrators, &p.orchestrators_off);
             team::rename(&mut p.tab_parents, old_id, &new_id);
-            team::rename_orchestrator(&mut p.orchestrators, old_id, &new_id);
+            team::rename_orchestrator(&mut p.orchestrators, &mut p.orchestrators_off, old_id, &new_id);
             models::rename(&mut p.tab_models, old_id, &new_id);
             models::rename(&mut p.tab_efforts, old_id, &new_id);
             models::rename(&mut p.tab_sessions, old_id, &new_id);
+            let orch_after = team::effective_orchestrators(&p.tab_parents, &open_after, &p.orchestrators, &p.orchestrators_off);
+            let was_orch = orch_before.iter().any(|x| x == old_id);
+            let is_orch = orch_after.iter().any(|x| x == &new_id);
+            if was_orch != is_orch {
+                flipped.push(new_id.clone());
+            }
+            for id in diff_orchestrators(&orch_before, &orch_after) {
+                if id != old_id && id != new_id {
+                    flipped.push(id);
+                }
+            }
         });
         let mut changed = self.inner.team_changed.lock();
         if changed.remove(&instances::scoped(project, old_id)) {
             changed.insert(instances::scoped(project, &new_id));
         }
+        changed.extend(flipped.into_iter().map(|id| instances::scoped(project, &id)));
         Ok(())
     }
 
@@ -1089,6 +1156,11 @@ impl Core {
 /// (relative to the workspace when inside it, with `/`). Equivalent to `refPath`.
 pub fn ref_path(workspace: &Path, abs: &Path) -> String {
     util::ref_path(workspace, abs)
+}
+
+/// Ids whose effective Orchestrator status flipped between `before` and `after`.
+fn diff_orchestrators(before: &[String], after: &[String]) -> Vec<String> {
+    before.iter().filter(|id| !after.contains(id)).chain(after.iter().filter(|id| !before.contains(id))).cloned().collect()
 }
 
 #[cfg(test)]

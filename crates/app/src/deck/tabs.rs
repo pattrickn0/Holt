@@ -39,6 +39,13 @@ impl Deck {
             self.group_order = project.pane_order.clone();
             self.split_ratios = ratios;
         }
+        // Register all saved instances before spawning tabs so startup instructions see the full hierarchy
+        // (including auto-Orchestrator roots whose subordinates appear later in `open_tabs`).
+        for saved in &project.open_tabs {
+            if Ident::parse(saved).is_some_and(|i| self.agents.knows(&i.kind)) {
+                self.core.restore_instance(id, saved);
+            }
+        }
         // Opens only what was open (no agent opens by itself, not even the first time). `active_tab`
         // points at `open_tabs`; tabs of agents that disappeared are skipped.
         self.restoring = true;
@@ -49,7 +56,6 @@ impl Deck {
             if self.tabs.iter().any(|t| t.project == id && t.ident.id() == *saved) {
                 continue;
             }
-            self.core.restore_instance(id, saved);
             self.add_tab(id.to_owned(), ident, true, false);
             if i as i32 == project.active_tab {
                 active_uid = self.tabs.last().map(|t| t.uid);
