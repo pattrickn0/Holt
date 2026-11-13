@@ -470,11 +470,17 @@ impl Registry {
         self.peers_with(custom).into_iter().filter(|p| can_answer_with(p, custom)).collect()
     }
 
-    /// Like [`Registry::bridge_instructions`], for the instance `ident`, with its role and custom CLIs.
-    pub fn bridge_instructions_for_with(&self, ident: &Ident, custom: &[crate::config::CustomAgent]) -> String {
+    /// Like [`Registry::bridge_instructions`], for the instance `ident`, with its role and custom CLIs. With
+    /// `orchestrator`, the instance is the project's designated Orchestrator and is told so (a regular agent that only
+    /// opens helpers is not).
+    pub fn bridge_instructions_for_with(&self, ident: &Ident, custom: &[crate::config::CustomAgent], orchestrator: bool) -> String {
         let mut text = self.bridge_instructions_with(Some(&ident.id()), custom);
         if let Some(role) = &ident.role {
             text.push_str(&format!("\nYour role in this instance: {role}. Act accordingly."));
+        }
+        if orchestrator {
+            text.push('\n');
+            text.push_str(crate::team::orchestrator_note());
         }
         text
     }

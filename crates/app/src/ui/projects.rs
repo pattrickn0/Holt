@@ -7,7 +7,7 @@ use holt_core::models::short_model;
 
 use egui::{Align2, Color32, CursorIcon, Id, Order, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
-use super::{clickable, dot, frame, galley, galley_trunc, menus, paint_folder_icon, place, shadow, text_in, tip};
+use super::{clickable, dot, frame, galley, galley_trunc, menus, paint_folder_icon, place, shadow, text_in, text_w, tip};
 use crate::deck::{AgentBadge, Deck, ProjectView};
 use crate::icons::Icon;
 use crate::theme;
@@ -35,6 +35,10 @@ const GAP: f32 = 7.0;
 const META_MIN_W: f32 = 24.0;
 /// Levels beyond this one stop indenting (the bar is narrow).
 const MAX_DEPTH: usize = 5;
+/// The Orchestrator's "orch" chip: height, inner padding and gap after the name.
+const ORCH_H: f32 = 14.0;
+const ORCH_PAD: f32 = 4.0;
+const ORCH_GAP: f32 = 5.0;
 
 /// Remaining width on the right of the row for the phase/idle/model text after the agent name (`name_w`)
 /// is placed in `avail_w`. The right-hand text is cut (or dropped when less than [`META_MIN_W`] remains)
@@ -484,6 +488,8 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
     let mut switch_to_id = None;
     let mut toggle_id = None;
     let mut agent_click: Option<AgentClick> = None;
+    // Right click on an agent row: (tab index, pointer) of the tab menu to open.
+    let mut agent_menu: Option<(usize, Pos2)> = None;
     let mut open_ctx = None;
     let mut new_agent_click = false;
     let mut new_agent_anchor: Option<Rect> = None;
@@ -686,7 +692,12 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                         theme::pal().text
                     };
                     let short_name = agent_row_label(&ag.label, &ag.kind, deck.agents.is_custom(&ag.kind), ag.model.as_deref());
-                    let tab_g = galley_trunc(&p, &short_name, tab_font, tab_color, avail_w);
+                    // The project's Orchestrator carries a small "orch" chip right after the name (a designated role,
+                    // unlike the boss of a subtree, which only shows as indentation). The name yields room to it.
+                    let orch_font = theme::meta(9.5);
+                    let orch_w = if ag.orchestrator { text_w(&p, t!("orch"), orch_font.clone()) + 2.0 * ORCH_PAD } else { 0.0 };
+                    let orch_room = if ag.orchestrator { orch_w + ORCH_GAP } else { 0.0 };
+                    let tab_g = galley_trunc(&p, &short_name, tab_font, tab_color, (avail_w - orch_room).max(1.0));
                     let placed_r = place(
                         &p,
                         Rect::from_min_max(Pos2::new(name_x, tab_r.min.y), Pos2::new(right, tab_r.max.y)),
@@ -697,12 +708,21 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                     if !ag.alive && ag.tab.is_some() {
                         p.hline(placed_r.min.x..=placed_r.max.x, placed_r.center().y + 0.5, Stroke::new(1.0, tab_color));
                     }
+                    if ag.orchestrator {
+                        let chip = Rect::from_min_size(
+                            Pos2::new(placed_r.max.x + ORCH_GAP, (tab_r.center().y - ORCH_H / 2.0).round()),
+                            Vec2::new(orch_w, ORCH_H),
+                        );
+                        let orch_color = if is_active_tab { theme::pal().text_strong } else { theme::pal().text_2 };
+                        p.rect_filled(chip, 4.0, theme::pal().chip);
+                        text_in(&p, chip, Align2::CENTER_CENTER, t!("orch"), orch_font, orch_color);
+                    }
 
                     if !ag.busy && ag.status.is_some() {
                         ctx.request_repaint_after(std::time::Duration::from_secs(60));
                     }
                     if let (Some((text, kind)), Some(meta_avail)) =
-                        (agent_state_tail(ag, is_active_tab, tab_hov), right_meta_budget(avail_w, placed_r.width()))
+                        (agent_state_tail(ag, is_active_tab, tab_hov), right_meta_budget(avail_w, placed_r.width() + orch_room))
                     {
                         let mcolor = match kind {
                             TailKind::Working => theme::pal().text_2,
@@ -739,12 +759,22 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
                     if let Some(model) = &ag.model {
                         tooltip.push_str(&format!("\n{}", t!("Model: {model}", model)));
                     }
+                    if ag.orchestrator {
+                        tooltip.push_str(&format!("\n{}", t!("The project's orchestrator")));
+                    }
                     if let Some(parent) = ag.parent.as_ref().filter(|_| node.depth > 0) {
                         tooltip.push_str(&format!("\n{}", t!("Reports to {agent}", agent = parent)));
                     }
                     tooltip.push('\n');
                     tooltip.push_str(t!("Drag onto another agent to put it on their team"));
-                    if tip(tab_resp, tooltip).clicked() {
+                    let tab_resp = tip(tab_resp, tooltip);
+                    if tab_resp.secondary_clicked() {
+                        // The same menu as the tab's (it carries "Set as orchestrator"); a project not loaded yet has no tab.
+                        if let Some(i) = ag.tab {
+                            let pos = ui.input(|inp| inp.pointer.interact_pos()).unwrap_or(tab_r.center());
+                            agent_menu = Some((i, pos));
+                        }
+                    } else if tab_resp.clicked() {
                         agent_click = Some(AgentClick { project: proj.id.clone(), id: ag.id.clone(), tab: ag.tab });
                     }
                 }
@@ -831,6 +861,9 @@ pub fn draw(deck: &mut Deck, ui: &mut Ui, top_y: &mut f32, rect: Rect, max_list_
         }
         Some(AgentClick { project, id, tab: None }) => deck.focus_agent(&project, &id),
         None => {}
+    }
+    if let Some(menu) = agent_menu {
+        deck.tab_context_menu = Some(menu);
     }
     if let Some((id, path, name, pos)) = open_ctx {
         ctx.data_mut(|d| {
@@ -1049,6 +1082,7 @@ mod tests {
         AgentBadge {
             id: id.into(),
             parent: parent.map(Into::into),
+            orchestrator: false,
             kind: "claude".into(),
             label: id.into(),
             model: None,

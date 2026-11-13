@@ -51,6 +51,19 @@ fn the_generic_instructions_do_not_list_the_installed_agents() {
     assert!(text.contains("HOLT_AGENT") && text.contains("HOLT_ROLE") && !text.contains("(agents:"), "{text}");
 }
 
+/// Only the instance designated as the project's Orchestrator is told the role; a regular agent (even one that opens
+/// helpers) gets the plain instructions.
+#[test]
+fn only_the_orchestrator_gets_the_orchestrator_note() {
+    let reg = registry();
+    let ident = crate::instances::Ident::parse("claude@lead").expect("ident");
+    let regular = reg.bridge_instructions_for_with(&ident, &[], false);
+    assert!(!regular.contains("Orchestrator"), "{regular}");
+    let orch = reg.bridge_instructions_for_with(&ident, &[], true);
+    assert!(orch.starts_with(&regular), "the note goes after the regular text");
+    assert!(orch.contains("You are an Orchestrator for this project") && orch.contains("Your role in this instance: lead."), "{orch}");
+}
+
 #[test]
 fn each_cli_gets_its_own_instruction_channel() {
     let file = Path::new("/data/holt-instructions.md");

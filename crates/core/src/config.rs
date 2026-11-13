@@ -1,6 +1,6 @@
 //! Persisted configuration (equivalent to the Electron `config.json`, with extra layout fields).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,11 @@ pub struct ProjectCfg {
     /// Who opened each tab (tab id → id of whoever called it through `ask-agent`): the hierarchy of the
     /// agent list in the sidebar. Tabs opened by the user do not go in.
     pub tab_parents: BTreeMap<String, String>,
+    /// The project's Orchestrators (instance ids), toggled per agent by the user: a project-level role, unlike the
+    /// temporary boss of `tab_parents` that any agent becomes by opening helpers. Never a task agent (`tN`); cleared
+    /// when a tab closes and renamed with it (see `team.rs`).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub orchestrators: BTreeSet<String>,
     /// LLM model of each instance (tab id → model, e.g. `claude@dev` → `sonnet`). The id does not
     /// change with the model; only the instances that chose (or inherited) a model go in here.
     pub tab_models: BTreeMap<String, String>,
@@ -53,6 +58,7 @@ impl Default for ProjectCfg {
             split_rows: Vec::new(),
             split_cols: Vec::new(),
             tab_parents: BTreeMap::new(),
+            orchestrators: BTreeSet::new(),
             tab_models: BTreeMap::new(),
             tab_efforts: BTreeMap::new(),
             tab_sessions: BTreeMap::new(),
@@ -850,6 +856,28 @@ mod tests {
                 && old.project_list[0].tab_sessions.is_empty()
                 && old.role_models.is_empty()
         );
+    }
+
+    #[test]
+    fn orchestrators_are_saved_and_optional() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let p = paths(tmp.path());
+        let mut project = ProjectCfg::new(tmp.path().join("proj"), None, &[]);
+        project.orchestrators.insert("claude@lead".into());
+        project.orchestrators.insert("codex".into());
+        let cfg = Config { active_project: project.id.clone(), project_list: vec![project.clone()], ..Config::default() };
+        cfg.save(&p.config_file).expect("save");
+        let text = std::fs::read_to_string(&p.config_file).expect("read");
+        assert!(text.contains("\"orchestrators\"") && text.contains("\"claude@lead\"") && text.contains("\"codex\""), "{text}");
+        let back = Config::load_from(std::slice::from_ref(&p.config_file), &p, no_home());
+        assert_eq!(back.project_list[0].orchestrators, project.orchestrators);
+        // When empty, the key is not written; an old config (without the key) loads with an empty set.
+        project.orchestrators.clear();
+        let cfg = Config { active_project: project.id.clone(), project_list: vec![project], ..Config::default() };
+        cfg.save(&p.config_file).expect("save");
+        assert!(!std::fs::read_to_string(&p.config_file).expect("read").contains("orchestrators"));
+        let old = Config::from_json_over_defaults(r#"{"projectList":[{"id":"p1","name":"x","path":"/x"}]}"#, &p);
+        assert!(old.project_list[0].orchestrators.is_empty());
     }
 
     #[test]

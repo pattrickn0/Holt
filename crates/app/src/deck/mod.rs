@@ -226,6 +226,9 @@ pub struct AgentBadge {
     pub id: String,
     /// Instance boss (`None` = answers the user). Comes from the core (`Core::set_boss`).
     pub parent: Option<String>,
+    /// The instance is the project's designated Orchestrator (`ProjectCfg.orchestrator`), not merely the boss of the
+    /// helpers it opened.
+    pub orchestrator: bool,
     /// Model (`claude`, `antigravity`…): chooses the logo.
     pub kind: String,
     /// Label shown (`Claude · Dev`).

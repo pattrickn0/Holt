@@ -796,6 +796,24 @@ pub fn tab_context_menu(deck: &mut Deck, ctx: &egui::Context) {
     if deck.agents.is_custom(&deck.tabs[idx].kind) {
         items.push((TabAction::EditCli, t!("Edit CLI…"), None));
     }
+    // The project's Orchestrator is a role the user designates (not every agent that opens helpers). A task agent (`tN`)
+    // lives only while its task does, so it never gets the item.
+    let (project, id) = (deck.tabs[idx].project.clone(), deck.tabs[idx].ident.id());
+    if !holt_core::team::is_task_agent(&id) {
+        if deck.is_orchestrator(&project, &id) {
+            items.push((
+                TabAction::RemoveOrchestrator,
+                t!("Remove orchestrator"),
+                Some(t!("This agent stops being the project's orchestrator.")),
+            ));
+        } else {
+            items.push((
+                TabAction::SetOrchestrator,
+                t!("Set as orchestrator"),
+                Some(t!("Makes this agent the project's orchestrator: it coordinates the other agents and the tasks.")),
+            ));
+        }
+    }
     items.push((
         TabAction::Record,
         if recording { t!("Stop recording the terminal") } else { t!("Record the terminal (diagnostics)") },
@@ -858,6 +876,8 @@ pub fn tab_context_menu(deck: &mut Deck, ctx: &egui::Context) {
                 }
                 TabAction::Record => deck.toggle_terminal_recording(idx),
                 TabAction::Snapshot => deck.save_terminal_snapshot(idx),
+                TabAction::SetOrchestrator => deck.set_orchestrator(&project, &id, true),
+                TabAction::RemoveOrchestrator => deck.set_orchestrator(&project, &id, false),
                 TabAction::Close => deck.close_tab(idx),
             }
         }
@@ -873,6 +893,8 @@ pub fn tab_context_menu(deck: &mut Deck, ctx: &egui::Context) {
 enum TabAction {
     Rename,
     EditCli,
+    SetOrchestrator,
+    RemoveOrchestrator,
     Record,
     Snapshot,
     Close,

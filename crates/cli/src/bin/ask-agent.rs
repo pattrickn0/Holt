@@ -237,16 +237,7 @@ fn main() -> ExitCode {
     if args.first().is_some_and(|a| a == "--team") {
         return match team(&bridge) {
             Ok(t) => {
-                println!("You: {}", with_model(&t.id, &t.models));
-                match &t.boss {
-                    Some(b) => println!("Boss: {} (report to it with: ask-agent --boss \"message\")", with_model(b, &t.models)),
-                    None => println!("Boss: none (you answer directly to the user)"),
-                }
-                if t.crew.is_empty() {
-                    println!("Crew: no agents");
-                } else {
-                    println!("Crew: {}", t.crew.iter().map(|c| with_model(c, &t.models)).collect::<Vec<_>>().join(", "));
-                }
+                println!("{}", format_team(&t));
                 ExitCode::SUCCESS
             }
             Err(e) => fail(e, 1),
@@ -276,9 +267,7 @@ fn main() -> ExitCode {
         return match bridge.request("GET", "/agents", None, None) {
             Ok((_, json)) => match json.get("agents").and_then(Value::as_array) {
                 Some(list) => {
-                    let models = models_of(&json);
-                    let names: Vec<String> = list.iter().filter_map(Value::as_str).map(|n| with_model(n, &models)).collect();
-                    println!("{}", names.join("\n"));
+                    println!("{}", format_list(list, &json));
                     ExitCode::SUCCESS
                 }
                 None => fail(json.get("error").and_then(Value::as_str).unwrap_or("invalid response from the bridge"), 1),
@@ -524,20 +513,87 @@ struct Team {
     id: String,
     boss: Option<String>,
     crew: Vec<String>,
+    /// The project's Orchestrators (a designated role), currently open.
+    orchestrators: Vec<String>,
+    /// I am designated as an Orchestrator for this project.
+    is_orchestrator: bool,
     /// Model of whoever appears above (id → model).
     models: BTreeMap<String, String>,
 }
 
-/// `GET /team`: me, boss, crew and the models.
+/// `GET /team`: me, boss, crew, the Orchestrators and the models.
 fn team(bridge: &Bridge) -> Result<Team, String> {
     let (status, json) = bridge.request("GET", "/team", None, Some(Duration::from_secs(10)))?;
     if status != 200 {
         return Err(json.get("error").and_then(Value::as_str).unwrap_or("unknown error").to_owned());
     }
+    Ok(team_from(&json))
+}
+
+fn team_from(json: &Value) -> Team {
     let id = json.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let boss = json.get("boss").and_then(Value::as_str).map(str::to_owned);
     let crew = json.get("crew").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect());
-    Ok(Team { id, boss, crew: crew.unwrap_or_default(), models: models_of(&json) })
+    let orchestrators = json
+        .get("orchestrators")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    let is_orchestrator = json.get("is_orchestrator").and_then(Value::as_bool).unwrap_or(false);
+    Team { id, boss, crew: crew.unwrap_or_default(), orchestrators, is_orchestrator, models: models_of(json) }
+}
+
+/// The `--team` text. Designated Orchestrators are told apart from a regular agent that merely leads the helpers it opened.
+fn format_team(t: &Team) -> String {
+    let mark = if t.is_orchestrator { " [orchestrator]" } else { "" };
+    let mut lines = vec![format!("You: {}{mark}", with_model(&t.id, &t.models))];
+    lines.push(match &t.boss {
+        Some(b) => format!("Boss: {} (report to it with: ask-agent --boss \"message\")", with_model(b, &t.models)),
+        None => "Boss: none (you answer directly to the user)".to_owned(),
+    });
+    if t.crew.is_empty() {
+        lines.push("Crew: no agents".to_owned());
+    } else {
+        let crew = t.crew.iter().map(|c| with_model(c, &t.models)).collect::<Vec<_>>().join(", ");
+        // Leading helpers you opened is a temporary place in the team, not the Orchestrator role.
+        let note = if t.is_orchestrator { "" } else { " (you lead them as a regular agent, not as an Orchestrator)" };
+        lines.push(format!("Crew: {crew}{note}"));
+    }
+    if t.orchestrators.is_empty() {
+        lines.push("Orchestrators: none (no agent is designated as Orchestrator)".to_owned());
+    } else {
+        let list = t
+            .orchestrators
+            .iter()
+            .map(|o| {
+                let formatted = with_model(o, &t.models);
+                if *o == t.id {
+                    format!("{formatted} (you)")
+                } else {
+                    format!("{formatted} [orchestrator]")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("Orchestrators: {list}"));
+    }
+    lines.join("\n")
+}
+
+/// The `--list` text: one agent per line, with its model, designated Orchestrators marked `[orchestrator]`.
+fn format_list(list: &[Value], json: &Value) -> String {
+    let models = models_of(json);
+    let orchestrators: Vec<&str> =
+        json.get("orchestrators").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let names: Vec<String> = list
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|n| {
+            let mark = if orchestrators.contains(&n) { " [orchestrator]" } else { "" };
+            format!("{}{mark}", with_model(n, &models))
+        })
+        .collect();
+    names.join("\n")
 }
 
 // ---------- Learnings (`--learn`) ----------
@@ -1622,6 +1678,40 @@ ready"
         assert_eq!(with_model("aider", &models), "aider (cannot answer)");
         let json_cannot = json!({ "cannot_answer": ["aider"] });
         assert_eq!(models_of(&json_cannot).get("aider"), Some(&"cannot answer".to_string()));
+    }
+
+    #[test]
+    fn the_team_tells_the_orchestrator_from_a_regular_delegator() {
+        // A regular agent leading helpers it opened: crew, but not an Orchestrator.
+        let delegator = team_from(&json!({ "id": "claude", "crew": ["claude@dev"], "orchestrators": ["codex"], "is_orchestrator": false }));
+        let text = format_team(&delegator);
+        assert!(text.starts_with("You: claude\n"), "{text}");
+        assert!(text.contains("Crew: claude@dev (you lead them as a regular agent, not as an Orchestrator)"), "{text}");
+        assert!(text.contains("Orchestrators: codex [orchestrator]"), "{text}");
+        // An Orchestrator itself (with multiple Orchestrators in the project).
+        let orch = team_from(&json!({ "id": "codex", "crew": [], "orchestrators": ["codex", "antigravity"], "is_orchestrator": true }));
+        let text = format_team(&orch);
+        assert!(
+            text.starts_with("You: codex [orchestrator]\n") && text.contains("Orchestrators: codex (you), antigravity [orchestrator]"),
+            "{text}"
+        );
+        // A bridge without the fields (older Holt): no Orchestrators.
+        let old = team_from(&json!({ "id": "claude", "boss": "codex" }));
+        assert!(!old.is_orchestrator && old.orchestrators.is_empty());
+        assert!(format_team(&old).contains("Orchestrators: none"));
+    }
+
+    #[test]
+    fn the_list_marks_the_orchestrators() {
+        let json = json!({
+            "agents": ["claude", "claude@dev", "codex"],
+            "models": { "claude@dev": "sonnet" },
+            "orchestrators": ["claude@dev", "codex"]
+        });
+        let list = json["agents"].as_array().expect("agents").clone();
+        assert_eq!(format_list(&list, &json), "claude\nclaude@dev (sonnet) [orchestrator]\ncodex [orchestrator]");
+        let none = json!({ "agents": ["claude"], "orchestrators": [] });
+        assert_eq!(format_list(none["agents"].as_array().expect("agents"), &none), "claude");
     }
 
     #[test]
