@@ -21,7 +21,10 @@ reviews what is critical); a defect found that way becomes an item here. Product
    brief (today; today + one-line index of all; graph); score = hits and delivered size, with learnings as they were at the
    task's base. The graph begins with co-changes from `git log` (no merges, no large commits, no `memory/**`), which also
    suggests task scopes; only adopted for memory if it outperforms the index.
+3. [ ] **Live capability table.** Detect unknown/unrated models across all subscription CLIs (Antigravity, Claude, Codex,
+   OpenCode) in `Core::known_models` / `ask-agent --models`, surface them as unrated instead of omitting them, research
+   their initial capability into `data/capability.json`, and let `measure` calibrate from real tasks.
 
 ## Later (on the list, not yet)
 
-3. [ ] **Installer for Windows** (0.4).
+4. [ ] **Installer for Windows** (0.4).
